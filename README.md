@@ -107,7 +107,7 @@ The syntax of the configuration file is as follows:
                 "Value": {
                     // If you set the Defaults.Value.Flat to 'true', then the 'Value'
                     // object will disappear completely and the 'Value' and 'SourceTimestamp'
-                    // members wont be nested:
+                    // members wont be nested.
                     // The 'Flat' property could only be used for the 'MonitoredItem' and 'Value'
                     // configuratíon settings of the 'Defaults' objet and will be used for all JSON
                     // messages sent by publisher.
