@@ -105,7 +105,7 @@ The syntax of the configuration file is as follows:
                 // The Value object is configuring the properties taken from the event object
                 // the OPC UA stack provided in the value change notification event.
                 "Value": {
-                    // configuratíon settings of the Defaults object and will be used for all JSON
+                    // configuratíon settings of the 'Defaults' object and will be used for all Json
                     // messages sent by publisher.
                     "Flat": false,
 
