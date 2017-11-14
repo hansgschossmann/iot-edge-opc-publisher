@@ -102,32 +102,6 @@ The syntax of the configuration file is as follows:
 
         {
             "Defaults": {
-                // The MonitoredItem object is configuring the data taken from the MonitoredItem
-                // OPC UA object for published nodes.
-                "MonitoredItem": {
-
-                    // If you set the Defaults.MonitoredItem.Flat to 'false', then a
-                    // 'MonitoredItem' object will appear, which contains 'ApplicationUri'
-                    // and 'DisplayNode' proerties:
-                    //      "NodeId": "i=2058",
-                    //      "MonitoredItem": {
-                    //          "ApplicationUri": "urn:myopcserver",
-                    //          "DisplayName": "CurrentTime",
-                    //      }
-                    // The 'Flat' property could only be used for the 'MonitoredItem' and
-                    // 'Value' configuratíon settings of the 'Defaults' objet and will be used
-                    // for all JSON messages sent by publisher.
-                    "Flat": true,
-
-                    "ApplicationUri": {
-                        "Publish": true,
-                        "Name": "ApplicationUri"
-                    },
-                    "DisplayName": {
-                        "Publish": true,
-                        "Name": "DisplayName"
-                    }
-                },
                 // The Value object is configuring the properties taken from the event object
                 // the OPC UA stack provided in the value change notification event.
                 "Value": {
