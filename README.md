@@ -101,55 +101,7 @@ The telemetry which is put into the JSON formatted message is a selection of imp
 The syntax of the configuration file is as follows:
 
         {
-            // The settings of 'Defaults' in the sample below, are similar to what publisher is
-            // using as its internal default telemetry configuration.
             "Defaults": {
-                // The first two properties ('EndpointUrl' and 'NodeId' are configuring data
-                // taken from the OpcPublisher node configuration.
-                "EndpointUrl": {
-
-                    // The following three properties can be used to configure the 'EndpointUrl'
-                    // property in the JSON message send by publisher to IoTHub.
-
-                    // Publish controls if the property should be part of the JSON message at all.
-                    "Publish": false,
-
-                    // Pattern is a regular expression, which is applied to the actual value of the
-                    // property (here 'EndpointUrl').
-                    // If this key is ommited (which is the default), then no regex matching is done
-                    // at all, which improves performance.
-                    // If the key is used you need to define groups in the regular expression.
-                    // Publisher applies the regular expression and then concatenates all groups
-                    // found and use the resulting string as the value in the JSON message to
-                    //sent to IoTHub.
-                    // This example mimics the default behaviour and defines a group,
-                    // which matches the conplete value:
-                    "Pattern": "(.*)",
-                    // Here some more exaples for 'Pattern' values and the generated result:
-                    // "Pattern": "i=(.*)"
-                    // defined for Defaults.NodeId.Pattern, will generate for the above sample
-                    // a 'NodeId' value of '2058'to be sent by publisher
-                    // "Pattern": "(i)=(.*)"
-                    // defined for Defaults.NodeId.Pattern, will generate for the above sample
-                    // a 'NodeId' value of 'i2058' to be sent by publisher
-
-                    // Name allows you to use a shorter string as property name in the JSON message
-                    // sent by publisher. By default the property name is unchanged and will be
-                    // here 'EndpointUrl'.
-                    // The 'Name' property could only be set in the 'Defaults' object to ensure
-                    // all messages from publisher sent to IoTHub have a similar layout.
-                    "Name": "EndpointUrl"
-
-                },
-                "NodeId": {
-                    "Publish": true,
-
-                    // If you set Defaults.NodeId.Name to "ni", then the "NodeId" key/value pair
-                    // (from the above example) will change to:
-                    //      "ni": "i=2058",
-                    "Name": "NodeId"
-                },
-
                 // The MonitoredItem object is configuring the data taken from the MonitoredItem
                 // OPC UA object for published nodes.
                 "MonitoredItem": {
