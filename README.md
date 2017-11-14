@@ -101,8 +101,7 @@ The telemetry which is put into the JSON formatted message is a selection of imp
 The syntax of the configuration file is as follows:
 
         // The configuration file consists of two objects:
-        // 1) The 'Defaults' object, which defines default settings for the telemetry
-        //    configuration as well as a few control settings.
+        // 1) The 'Defaults' object, which defines defaults for the telemetry configuration
         // 2) An array 'EndpointSpecific' of endpoint specific configuration
         // Both objects are optional and if they are not specified, then publisher uses
         // its internal default configuration, which generates telemetry messages compatible
@@ -119,7 +118,7 @@ The syntax of the configuration file is as follows:
         //      }
         //  }
 
-        // The settings of 'Defaults' in the sample below, are similar to what publisher is
+        // The 'Defaults' object in the sample below, are similar to what publisher is
         // using as its internal default telemetry configuration.
         {
             "Defaults": {
@@ -181,8 +180,8 @@ The syntax of the configuration file is as follows:
                     //          "ApplicationUri": "urn:myopcserver",
                     //          "DisplayName": "CurrentTime",
                     //      }
-                    // The 'Flat' property could only be used for the 'MonitoredItem' and
-                    // 'Value' configuratíon settings of the 'Defaults' objet and will be used
+                    // The 'Flat' property could only be used in the 'MonitoredItem' and
+                    // 'Value' objects of the 'Defaults' object and will be used
                     // for all JSON messages sent by publisher.
                     "Flat": true,
 
@@ -230,9 +229,9 @@ The syntax of the configuration file is as follows:
                 }
             },
 
-            // The next object allows to configure 'Publish' and 'Pattern' settings for specific
-            // endpoint URLs. Those will overwrite the settings specified in the 'Defaults' object
-            // or the default settings used by publisher.
+            // The next object allows to configure 'Publish' and 'Pattern' for specific
+            // endpoint URLs. Those will overwrite the ones specified in the 'Defaults' object
+            // or the defaults used by publisher.
             // It is not allowed to specify 'Name' and 'Flat' properties in this object.
             "EndpointSpecific": [
                 // The following shows how a endpoint specific configuration could look like:
