@@ -103,7 +103,7 @@ The syntax of the configuration file is as follows:
         // The configuration file consists of two objects:
         // 1) The 'Defaults' object, which defines default settings for the telemetry
         //    configuration as well as a few control settings.
-        // 2) An array 'EndpointSpecific' of endpoint specific configuration settings
+        // 2) An array 'EndpointSpecific' of endpoint specific configuration
         // Both objects are optional and if they are not specified, then publisher uses
         // its internal default configuration, which generates telemetry messages compatible
         // with the Microsoft Connected factory Preconfigured Solution (https://github.com/Azure/azure-iot-connected-factory).
