@@ -100,7 +100,7 @@ The telemetry which is put into the JSON formatted message is a selection of imp
 
 The syntax of the configuration file is as follows:
 
-        // The settings configuration file consists of two objects:
+        // The configuration settings file consists of two objects:
         // 1) The 'Defaults' object, which defines defaults for the telemetry configuration
         // 2) An array 'EndpointSpecific' of endpoint specific configuration
         // Both objects are optional and if they are not specified, then publisher uses
