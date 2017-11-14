@@ -105,9 +105,6 @@ The syntax of the configuration file is as follows:
                 // The Value object is configuring the properties taken from the event object
                 // the OPC UA stack provided in the value change notification event.
                 "Value": {
-                    // If you set the Defaults.Value.Flat to 'true', then the 'Value'
-                    // object will disappear completely and the 'Value' and 'SourceTimestamp'
-                    // members wont be nested.
                     // The 'Flat' property could only be used for the 'MonitoredItem' and 'Value'
                     // configuratíon settings of the 'Defaults' objet and will be used for all JSON
                     // messages sent by publisher.
