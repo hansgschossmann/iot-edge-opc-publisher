@@ -139,48 +139,67 @@ namespace OpcPublisher
                     }
                 }
 
+                // check if we have an environment variable containing an IoT Edge connectionstring, we run as IoT Edge module
+                if (!string.IsNullOrEmpty(Environment.GetEnvironmentVariable("EdgeHubConnectionString")))
+                {
+                    _iotEdgeConnectionString = Environment.GetEnvironmentVariable("EdgeHubConnectionString");
+                    Trace("IoT Edge detected, connection string read from environment.");
+
+                }
+
+                // if we run as IoT Edge module, we do not need to do any IoT Hub operations and key handling, but just 
                 // register ourselves with IoT Hub
                 string deviceConnectionString;
-                Trace($"IoTHub device cert store type is: {IotDeviceCertStoreType}");
-                Trace($"IoTHub device cert path is: {IotDeviceCertStorePath}");
-                if (string.IsNullOrEmpty(_iotHubOwnerConnectionString))
+                if (string.IsNullOrEmpty(_iotEdgeConnectionString))
                 {
-                    Trace("IoT Hub owner connection string not specified. Assume device connection string already in cert store.");
-                }
-                else
-                {
-                    Trace($"Attempting to register ourselves with IoT Hub using owner connection string: {_iotHubOwnerConnectionString}");
-                    RegistryManager manager = RegistryManager.CreateFromConnectionString(_iotHubOwnerConnectionString);
-
-                    // remove any existing device
-                    Device existingDevice = await manager.GetDeviceAsync(ApplicationName);
-                    if (existingDevice != null)
+                    Trace($"IoTHub device cert store type is: {IotDeviceCertStoreType}");
+                    Trace($"IoTHub device cert path is: {IotDeviceCertStorePath}");
+                    if (string.IsNullOrEmpty(_iotHubOwnerConnectionString))
                     {
-                        Trace($"Device '{ApplicationName}' found in IoTHub registry. Remove it.");
-                        await manager.RemoveDeviceAsync(ApplicationName);
-                    }
-
-                    Trace($"Adding device '{ApplicationName}' to IoTHub registry.");
-                    Device newDevice = await manager.AddDeviceAsync(new Device(ApplicationName));
-                    if (newDevice != null)
-                    {
-                        string hostname = _iotHubOwnerConnectionString.Substring(0, _iotHubOwnerConnectionString.IndexOf(";"));
-                        deviceConnectionString = hostname + ";DeviceId=" + ApplicationName + ";SharedAccessKey=" + newDevice.Authentication.SymmetricKey.PrimaryKey;
-                        Trace($"Device connection string is: {deviceConnectionString}");
-                        Trace($"Adding it to device cert store.");
-                        await SecureIoTHubToken.WriteAsync(ApplicationName, deviceConnectionString, IotDeviceCertStoreType, IotDeviceCertStorePath);
+                        Trace("IoT Hub owner connection string not specified. Assume device connection string already in cert store.");
                     }
                     else
                     {
-                        Trace($"Could not register ourselves with IoT Hub using owner connection string: {_iotHubOwnerConnectionString}");
-                        Trace("exiting...");
-                        return false;
+                        Trace($"Attempting to register ourselves with IoT Hub using owner connection string: {_iotHubOwnerConnectionString}");
+                        RegistryManager manager = RegistryManager.CreateFromConnectionString(_iotHubOwnerConnectionString);
+
+                        // remove any existing device
+                        Device existingDevice = await manager.GetDeviceAsync(ApplicationName);
+                        if (existingDevice != null)
+                        {
+                            Trace($"Device '{ApplicationName}' found in IoTHub registry. Remove it.");
+                            await manager.RemoveDeviceAsync(ApplicationName);
+                        }
+
+                        Trace($"Adding device '{ApplicationName}' to IoTHub registry.");
+                        Device newDevice = await manager.AddDeviceAsync(new Device(ApplicationName));
+                        if (newDevice != null)
+                        {
+                            string hostname = _iotHubOwnerConnectionString.Substring(0, _iotHubOwnerConnectionString.IndexOf(";"));
+                            deviceConnectionString = hostname + ";DeviceId=" + ApplicationName + ";SharedAccessKey=" + newDevice.Authentication.SymmetricKey.PrimaryKey;
+                            Trace($"Device connection string is: {deviceConnectionString}");
+                            Trace($"Adding it to device cert store.");
+                            await SecureIoTHubToken.WriteAsync(ApplicationName, deviceConnectionString, IotDeviceCertStoreType, IotDeviceCertStorePath);
+                        }
+                        else
+                        {
+                            Trace($"Could not register ourselves with IoT Hub using owner connection string: {_iotHubOwnerConnectionString}");
+                            Trace("exiting...");
+                            return false;
+                        }
                     }
+
+                    // try to read connection string from secure store and open IoTHub client
+                    Trace($"Attempting to read device connection string from cert store using subject name: {ApplicationName}");
+                    deviceConnectionString = await SecureIoTHubToken.ReadAsync(ApplicationName, IotDeviceCertStoreType, IotDeviceCertStorePath);
+                }
+                else
+                {
+                    // if we running as IoT Edge module, the connection string is what we got through the environment
+                    deviceConnectionString = _iotEdgeConnectionString;
                 }
 
-                // try to read connection string from secure store and open IoTHub client
-                Trace($"Attempting to read device connection string from cert store using subject name: {ApplicationName}");
-                deviceConnectionString = await SecureIoTHubToken.ReadAsync(ApplicationName, IotDeviceCertStoreType, IotDeviceCertStorePath);
+                // connect to IoTHub (cloud or edge)
                 if (!string.IsNullOrEmpty(deviceConnectionString))
                 {
                     Trace($"Create Publisher IoTHub client with device connection string: '{deviceConnectionString}' using '{IotHubProtocol}' for communication.");
@@ -572,6 +591,7 @@ namespace OpcPublisher
         }
 
         private static string _iotHubOwnerConnectionString = string.Empty;
+        private static string _iotEdgeConnectionString = string.Empty;
         private static Microsoft.Azure.Devices.Client.TransportType _iotHubProtocol = Microsoft.Azure.Devices.Client.TransportType.Mqtt_WebSocket_Only;
         private static uint _iotHubMessageSize = 262144;
         private static int _defaultSendIntervalSeconds = 10;
