@@ -329,7 +329,7 @@ namespace OpcPublisher
                 {
                     // show message
                     WriteLine($"Error: {e.Message}");
-                    WriteLine($"Actual command line: {arguments.ToString()}");
+                    WriteLine($"Actual command line: {string.Join(" ", args.ToArray())}");
                     // show usage
                     Usage(options);
                     return;
@@ -338,7 +338,7 @@ namespace OpcPublisher
                 // Validate and parse arguments.
                 if (arguments.Count > 2 || shouldShowHelp)
                 {
-                    WriteLine($"Actual command line: {arguments.ToString()}");
+                    WriteLine($"Actual command line: {string.Join(" ", args.ToArray())}");
                     Usage(options);
                     return;
                 }
