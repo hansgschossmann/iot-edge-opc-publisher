@@ -319,7 +319,7 @@ namespace OpcPublisher
                     { "h|help", "show this message and exit", h => shouldShowHelp = h != null },
                 };
 
-                List<string> arguments;
+                List<string> arguments = new List<string>();
                 try
                 {
                     // parse the command line
@@ -329,6 +329,7 @@ namespace OpcPublisher
                 {
                     // show message
                     WriteLine($"Error: {e.Message}");
+                    WriteLine($"Actual command line: {arguments.ToString()}");
                     // show usage
                     Usage(options);
                     return;
@@ -337,6 +338,7 @@ namespace OpcPublisher
                 // Validate and parse arguments.
                 if (arguments.Count > 2 || shouldShowHelp)
                 {
+                    WriteLine($"Actual command line: {arguments.ToString()}");
                     Usage(options);
                     return;
                 }
