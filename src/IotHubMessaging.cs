@@ -8,16 +8,20 @@ namespace OpcPublisher
 {
     using Microsoft.Azure.Devices;
     using Microsoft.Azure.Devices.Client;
+    using Microsoft.Azure.Devices.Client.Transport.Mqtt;
     using Newtonsoft.Json;
     using Opc.Ua;
     using System;
     using System.IO;
+    using System.Runtime.InteropServices;
+    using System.Security.Cryptography.X509Certificates;
     using static Opc.Ua.CertificateStoreType;
     using static OpcPublisher.Diagnostics;
     using static OpcPublisher.OpcMonitoredItem;
     using static OpcPublisher.PublisherTelemetryConfiguration;
     using static OpcPublisher.Workarounds.TraceWorkaround;
     using static OpcStackConfiguration;
+    using static Program;
 
     /// <summary>
     /// Class to handle all IoTHub communication.
@@ -120,13 +124,39 @@ namespace OpcPublisher
         }
 
         /// <summary>
+        /// Add certificate in local cert store for use by client for secure connection to IoT Edge runtime
+        /// </summary>
+        static void InstallEdgeHubCert()
+        {
+            string certPath = Environment.GetEnvironmentVariable("EdgeModuleCACertificateFile");
+            if (string.IsNullOrWhiteSpace(certPath))
+            {
+                // We cannot proceed further without a proper cert file
+                Trace($"Missing path to certificate collection file: {certPath}");
+                throw new InvalidOperationException("Missing path to certificate file.");
+            }
+            else if (!File.Exists(certPath))
+            {
+                // We cannot proceed further without a proper cert file
+                Trace($"Missing path to certificate collection file: {certPath}");
+                throw new InvalidOperationException("Missing certificate file.");
+            }
+            X509Store store = new X509Store(StoreName.Root, StoreLocation.CurrentUser);
+            store.Open(OpenFlags.ReadWrite);
+            store.Add(new X509Certificate2(X509Certificate2.CreateFromCertFile(certPath)));
+            Trace("Added IoT EdgeHub Cert: " + certPath);
+            store.Close();
+        }
+
+
+        /// <summary>
         /// Initializes the communication with secrets and details for (batched) send process.
         /// </summary>
         public async Task<bool> InitAsync()
         {
             try
             {
-                // check if we also received an owner connection string
+                // check if we got an IoTHub owner connection string
                 if (string.IsNullOrEmpty(_iotHubOwnerConnectionString))
                 {
                     Trace("IoT Hub owner connection string not passed as argument.");
@@ -139,19 +169,12 @@ namespace OpcPublisher
                     }
                 }
 
-                // check if we have an environment variable containing an IoT Edge connectionstring, we run as IoT Edge module
-                if (!string.IsNullOrEmpty(Environment.GetEnvironmentVariable("EdgeHubConnectionString")))
-                {
-                    _iotEdgeConnectionString = Environment.GetEnvironmentVariable("EdgeHubConnectionString");
-                    Trace("IoT Edge detected, connection string read from environment.");
-
-                }
-
                 // if we run as IoT Edge module, we do not need to do any IoT Hub operations and key handling, but just 
                 // register ourselves with IoT Hub
-                string deviceConnectionString;
-                if (string.IsNullOrEmpty(_iotEdgeConnectionString))
+                _edgeHubConnectionString = Environment.GetEnvironmentVariable("EdgeHubConnectionString");
+                if (string.IsNullOrEmpty(_edgeHubConnectionString))
                 {
+                    string deviceConnectionString;
                     Trace($"IoTHub device cert store type is: {IotDeviceCertStoreType}");
                     Trace($"IoTHub device cert path is: {IotDeviceCertStorePath}");
                     if (string.IsNullOrEmpty(_iotHubOwnerConnectionString))
@@ -192,27 +215,48 @@ namespace OpcPublisher
                     // try to read connection string from secure store and open IoTHub client
                     Trace($"Attempting to read device connection string from cert store using subject name: {ApplicationName}");
                     deviceConnectionString = await SecureIoTHubToken.ReadAsync(ApplicationName, IotDeviceCertStoreType, IotDeviceCertStorePath);
+
+                    // connect to IoTHub
+                    if (!string.IsNullOrEmpty(deviceConnectionString))
+                    {
+                        Trace($"Create Publisher IoTHub client with device connection string: '{deviceConnectionString}' using '{IotHubProtocol}' for communication.");
+                        _iotHubClient = DeviceClient.CreateFromConnectionString(deviceConnectionString, IotHubProtocol);
+                        ExponentialBackoff exponentialRetryPolicy = new ExponentialBackoff(int.MaxValue, TimeSpan.FromMilliseconds(2), TimeSpan.FromMilliseconds(1024), TimeSpan.FromMilliseconds(3));
+                        _iotHubClient.SetRetryPolicy(exponentialRetryPolicy);
+                        await _iotHubClient.OpenAsync();
+                    }
+                    else
+                    {
+                        Trace("Device connection string not found in secure store. Could not connect to IoTHub.");
+                        Trace("exiting...");
+                        return false;
+                    }
                 }
                 else
                 {
-                    // if we running as IoT Edge module, the connection string is what we got through the environment
-                    deviceConnectionString = _iotEdgeConnectionString;
-                }
+                    // we also need to initialize the cert verification, but it is not yet fully functional under Windows
+                    // Cert verification is not yet fully functional when using Windows OS for the container
+                    bool bypassCertVerification = RuntimeInformation.IsOSPlatform(OSPlatform.Windows);
+                    if (!bypassCertVerification)
+                    {
+                        InstallEdgeHubCert();
+                    }
 
-                // connect to IoTHub (cloud or edge)
-                if (!string.IsNullOrEmpty(deviceConnectionString))
-                {
-                    Trace($"Create Publisher IoTHub client with device connection string: '{deviceConnectionString}' using '{IotHubProtocol}' for communication.");
-                    _iotHubClient = DeviceClient.CreateFromConnectionString(deviceConnectionString, IotHubProtocol);
+                    MqttTransportSettings mqttSettings = new MqttTransportSettings(Microsoft.Azure.Devices.Client.TransportType.Mqtt_Tcp_Only);
+                    // During dev you might want to bypass the cert verification. It is highly recommended to verify certs systematically in production
+                    if (bypassCertVerification)
+                    {
+                        Trace($"ATTENTION: You are bypassing the EdgeHub security cert verfication. Please ensure the was by intent.");
+                        mqttSettings.RemoteCertificateValidationCallback = (sender, certificate, chain, sslPolicyErrors) => true;
+                    }
+                    ITransportSettings[] transportSettings = { mqttSettings };
+
+                    // connect to EdgeHub
+                    Trace($"Create Publisher EdgeHub client with connection string: '{_edgeHubConnectionString}' using '{IotHubProtocol}' for communication.");
+                    _iotHubClient = DeviceClient.CreateFromConnectionString(_edgeHubConnectionString, transportSettings);
                     ExponentialBackoff exponentialRetryPolicy = new ExponentialBackoff(int.MaxValue, TimeSpan.FromMilliseconds(2), TimeSpan.FromMilliseconds(1024), TimeSpan.FromMilliseconds(3));
                     _iotHubClient.SetRetryPolicy(exponentialRetryPolicy);
                     await _iotHubClient.OpenAsync();
-                }
-                else
-                {
-                    Trace("Device connection string not found in secure store. Could not connect to IoTHub.");
-                    Trace("exiting...");
-                    return false;
                 }
 
                 // show config
@@ -591,11 +635,10 @@ namespace OpcPublisher
         }
 
         private static string _iotHubOwnerConnectionString = string.Empty;
-        private static string _iotEdgeConnectionString = string.Empty;
         private static Microsoft.Azure.Devices.Client.TransportType _iotHubProtocol = Microsoft.Azure.Devices.Client.TransportType.Mqtt_WebSocket_Only;
         private static uint _iotHubMessageSize = 262144;
         private static int _defaultSendIntervalSeconds = 10;
-        private static string _iotDeviceCertStoreType = X509Store;
+        private static string _iotDeviceCertStoreType = CertificateStoreType.X509Store;
         private static string _iotDeviceCertStorePath = IotDeviceCertX509StorePathDefault;
         private static int _monitoredItemsQueueCapacity = 8192;
         private static long _enqueueCount;
@@ -618,5 +661,6 @@ namespace OpcPublisher
         private static StringBuilder _jsonStringBuilder;
         private static StringWriter _jsonStringWriter;
         private static JsonWriter _jsonWriter;
+        private static string _edgeHubConnectionString;
     }
 }

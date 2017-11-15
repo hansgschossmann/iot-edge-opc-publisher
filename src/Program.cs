@@ -26,6 +26,7 @@ namespace OpcPublisher
     {
         public static IotHubMessaging IotHubCommunication;
         public static CancellationTokenSource ShutdownTokenSource;
+        public static bool IsIotEdgeModule = false;
 
         public static uint PublisherShutdownWaitPeriod => _publisherShutdownWaitPeriod;
 
@@ -36,6 +37,14 @@ namespace OpcPublisher
         /// </summary>
         public static void Main(string[] args)
         {
+            // detect the runtime environment. either we run standalone (native or containerized) or as IoT Edge module (containerized)
+            // check if we have an environment variable containing an IoT Edge connectionstring, we run as IoT Edge module
+            if (!string.IsNullOrEmpty(Environment.GetEnvironmentVariable("EdgeHubConnectionString")))
+            {
+                WriteLine("IoT Edge detected, use IoT Edge Hub connection string read from environment.");
+                IsIotEdgeModule = true;
+            }
+
             MainAsync(args).Wait();
         }
 
@@ -320,6 +329,15 @@ namespace OpcPublisher
                 };
 
                 List<string> arguments = new List<string>();
+                int maxAllowedArguments = 2;
+                int applicationNameIndex = 0;
+                int connectionStringIndex = 1;
+                if (IsIotEdgeModule)
+                {
+                    maxAllowedArguments = 3;
+                    applicationNameIndex = 1;
+                    connectionStringIndex = 2;
+                }
                 try
                 {
                     // parse the command line
@@ -329,27 +347,25 @@ namespace OpcPublisher
                 {
                     // show message
                     WriteLine($"Error: {e.Message}");
-                    WriteLine($"Actual command line: {string.Join(" ", args.ToArray())}");
                     // show usage
                     Usage(options);
                     return;
                 }
 
                 // Validate and parse arguments.
-                if (arguments.Count > 2 || shouldShowHelp)
+                if (arguments.Count > maxAllowedArguments || shouldShowHelp)
                 {
-                    WriteLine($"Actual command line: {string.Join(" ", args.ToArray())}");
                     Usage(options);
                     return;
                 }
-                else if (arguments.Count == 2)
+                else if (arguments.Count == maxAllowedArguments)
                 {
-                    ApplicationName = arguments[0];
-                    IotHubOwnerConnectionString = arguments[1];
+                    ApplicationName = arguments[applicationNameIndex];
+                    IotHubOwnerConnectionString = arguments[connectionStringIndex];
                 }
-                else if (arguments.Count == 1)
+                else if (arguments.Count == maxAllowedArguments - 1)
                 {
-                    ApplicationName = arguments[0];
+                    ApplicationName = arguments[applicationNameIndex];
                 }
                 else
                 {
