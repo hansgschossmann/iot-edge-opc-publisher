@@ -13,7 +13,8 @@ namespace OpcPublisher
     using Opc.Ua.Server;
     using System.Text.RegularExpressions;
     using static Diagnostics;
-    using static IotHubMessaging;
+    using static HubCommunication;
+    using static IotHubCommunication;
     using static Opc.Ua.CertificateStoreType;
     using static OpcPublisher.Workarounds.TraceWorkaround;
     using static OpcSession;
@@ -24,7 +25,8 @@ namespace OpcPublisher
 
     public class Program
     {
-        public static IotHubMessaging IotHubCommunication;
+        public static IotHubCommunication IotHubCommunication;
+        public static IotEdgeHubCommunication IotEdgeHubCommunication;
         public static CancellationTokenSource ShutdownTokenSource;
         public static bool IsIotEdgeModule = false;
 
@@ -37,316 +39,349 @@ namespace OpcPublisher
         /// </summary>
         public static void Main(string[] args)
         {
-            // detect the runtime environment. either we run standalone (native or containerized) or as IoT Edge module (containerized)
-            // check if we have an environment variable containing an IoT Edge connectionstring, we run as IoT Edge module
-            if (!string.IsNullOrEmpty(Environment.GetEnvironmentVariable("EdgeHubConnectionString")))
-            {
-                WriteLine("IoT Edge detected, use IoT Edge Hub connection string read from environment.");
-                IsIotEdgeModule = true;
-            }
-
+            // todo remove
+            //bool waitHere = true;
+            //while (waitHere)
+            //{
+            //    int i = 0;
+            //    WriteLine($"forever loop (iteration {i++})");
+            //    Thread.Sleep(10000);
+            //}
             MainAsync(args).Wait();
         }
 
         /// <summary>
         /// Asynchronous part of the main method of the app.
         /// </summary>
-        public async static Task MainAsync(string[] args)
+        public async static Task MainAsync(string[] originalArgs)
         {
             try
             {
                 var shouldShowHelp = false;
 
-                // command line options configuration
+                // Shutdown token sources.
+                ShutdownTokenSource = new CancellationTokenSource();
+
+                // detect the runtime environment. either we run standalone (native or containerized) or as IoT Edge module (containerized)
+                // check if we have an environment variable containing an IoT Edge connectionstring, we run as IoT Edge module
+                string[] args = originalArgs;
+                if (!string.IsNullOrEmpty(Environment.GetEnvironmentVariable("EdgeHubConnectionString")))
+                {
+                    WriteLine("IoTEdge detected.");
+                    IsIotEdgeModule = true;
+
+                    // parse create options. we remove "dotnet" and the assembly name
+                    if (originalArgs.Length > 1)if (originalArgs.Length > 1)
+                    {
+                        WriteLine($"Only one create option argument is supported, but there were {originalArgs.Length} detected. Pls verify..");
+                    }
+                    if (originalArgs != null && originalArgs.Length == 1 && !string.IsNullOrEmpty(originalArgs[0]))
+                    {
+                        args = originalArgs[0].Split(" ");
+                    }
+                }
+
+                // command line options
                 Mono.Options.OptionSet options = new Mono.Options.OptionSet {
-                    // Publishing configuration options
-                    { "pf|publishfile=", $"the filename to configure the nodes to publish.\nDefault: '{PublisherNodeConfigurationFilename}'", (string p) => PublisherNodeConfigurationFilename = p },
-                    { "tc|telemetryconfigfile=", $"the filename to configure the ingested telemetry\nDefault: '{PublisherTelemetryConfigurationFilename}'", (string p) => PublisherTelemetryConfigurationFilename = p },
-                    { "sd|shopfloordomain=", $"the domain of the shopfloor. if specified this domain is appended (delimited by a ':' to the 'ApplicationURI' property when telemetry is sent to IoTHub.\n" +
-                            "The value must follow the syntactical rules of a DNS hostname.\nDefault: not set", (string s) => {
-                            Regex domainNameRegex = new Regex("^(([a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9\\-]*[a-zA-Z0-9])\\.)*([A-Za-z0-9]|[A-Za-z0-9][A-Za-z0-9\\-]*[A-Za-z0-9])$");
-                            if (domainNameRegex.IsMatch(s))
-                            {
-                                ShopfloorDomain = s;
-                            }
-                            else
-                            {
-                                throw new OptionException("The shopfloor domain is not a valid DNS hostname.", "shopfloordomain");
-                            }
-                        }
-                     },
-                    { "sw|sessionconnectwait=", $"specify the wait time in seconds publisher is trying to connect to disconnected endpoints and starts monitoring unmonitored items\nMin: 10\nDefault: {_publisherSessionConnectWaitSec}", (int i) => {
-                            if (i > 10)
-                            {
-                                _publisherSessionConnectWaitSec = i;
-                            }
-                            else
-                            {
-                                throw new OptionException("The sessionconnectwait must be greater than 10 sec", "sessionconnectwait");
-                            }
-                        }
-                    },
-                    { "mq|monitoreditemqueuecapacity=", $"specify how many notifications of monitored items can be stored in the internal queue, if the data can not be sent quick enough to IoTHub\nMin: 1024\nDefault: {MonitoredItemsQueueCapacity}", (int i) => {
-                            if (i >= 1024)
-                            {
-                                MonitoredItemsQueueCapacity = i;
-                            }
-                            else
-                            {
-                                throw new OptionException("The monitoreditemqueueitems must be greater than 1024", "monitoreditemqueueitems");
-                            }
-                        }
-                    },
-                    { "di|diagnosticsinterval=", $"shows publisher diagnostic info at the specified interval in seconds. 0 disables diagnostic output.\nDefault: {DiagnosticsInterval}", (uint u) => DiagnosticsInterval = u },
-
-                    { "vc|verboseconsole=", $"the output of publisher is shown on the console.\nDefault: {VerboseConsole}", (bool b) => VerboseConsole = b },
-
-                    { "ns|noshutdown=", $"publisher can not be stopped by pressing a key on the console, but will run forever.\nDefault: {_noShutdown}", (bool b) => _noShutdown = b },
-                    
-                    // IoTHub specific options
-                    { "ih|iothubprotocol=", $"the protocol to use for communication with Azure IoTHub (allowed values: {string.Join(", ", Enum.GetNames(IotHubProtocol.GetType()))}).\nDefault: {Enum.GetName(IotHubProtocol.GetType(), IotHubProtocol)}",
-                        (Microsoft.Azure.Devices.Client.TransportType p) => IotHubProtocol = p
-                    },
-                    { "ms|iothubmessagesize=", $"the max size of a message which can be send to IoTHub. when telemetry of this size is available it will be sent.\n0 will enforce immediate send when telemetry is available\nMin: 0\nMax: {IotHubMessageSizeMax}\nDefault: {IotHubMessageSize}", (uint u) => {
-                            if (u >= 0 && u <= IotHubMessageSizeMax)
-                            {
-                                IotHubMessageSize = u;
-                            }
-                            else
-                            {
-                                throw new OptionException("The iothubmessagesize must be in the range between 1 and 256*1024.", "iothubmessagesize");
-                            }
-                        }
-                    },
-                    { "si|iothubsendinterval=", $"the interval in seconds when telemetry should be send to IoTHub. If 0, then only the iothubmessagesize parameter controls when telemetry is sent.\nDefault: '{DefaultSendIntervalSeconds}'", (int i) => {
-                            if (i >= 0)
-                            {
-                                DefaultSendIntervalSeconds = i;
-                            }
-                            else
-                            {
-                                throw new OptionException("The iothubsendinterval must be larger or equal 0.", "iothubsendinterval");
-                            }
-                        }
-                    },
-                    { "dc|deviceconnectionstring=", $"if publisher is not able to register itself with IoTHub, you can create a device with name <applicationname> manually and pass in the connectionstring of this device.\nDefault: none",
-                        (string dc) => DeviceConnectionString = dc
-                    },
-
-                    // opc server configuration options
-                    { "lf|logfile=", $"the filename of the logfile to use.\nDefault: './Logs/<applicationname>.log.txt'", (string l) => LogFileName = l },
-                    { "pn|portnum=", $"the server port of the publisher OPC server endpoint.\nDefault: {PublisherServerPort}", (ushort p) => PublisherServerPort = p },
-                    { "pa|path=", $"the enpoint URL path part of the publisher OPC server endpoint.\nDefault: '{PublisherServerPath}'", (string a) => PublisherServerPath = a },
-                    { "lr|ldsreginterval=", $"the LDS(-ME) registration interval in ms. If 0, then the registration is disabled.\nDefault: {LdsRegistrationInterval}", (int i) => {
-                            if (i >= 0)
-                            {
-                                LdsRegistrationInterval = i;
-                            }
-                            else
-                            {
-                                throw new OptionException("The ldsreginterval must be larger or equal 0.", "ldsreginterval");
-                            }
-                        }
-                    },
-                    { "ot|operationtimeout=", $"the operation timeout of the publisher OPC UA client in ms.\nDefault: {OpcOperationTimeout}", (int i) => {
-                            if (i >= 0)
-                            {
-                                OpcOperationTimeout = i;
-                            }
-                            else
-                            {
-                                throw new OptionException("The operation timeout must be larger or equal 0.", "operationtimeout");
-                            }
-                        }
-                    },
-                    { "oi|opcsamplinginterval=", "the publisher is using this as default value in milliseconds to request the servers to sample the nodes with this interval\n" +
-                        "this value might be revised by the OPC UA servers to a supported sampling interval.\n" +
-                        "please check the OPC UA specification for details how this is handled by the OPC UA stack.\n" +
-                        "a negative value will set the sampling interval to the publishing interval of the subscription this node is on.\n" +
-                        $"0 will configure the OPC UA server to sample in the highest possible resolution and should be taken with care.\nDefault: {OpcSamplingInterval}", (int i) => OpcSamplingInterval = i
-                    },
-                    { "op|opcpublishinginterval=", "the publisher is using this as default value in milliseconds for the publishing interval setting of the subscriptions established to the OPC UA servers.\n" +
-                        "please check the OPC UA specification for details how this is handled by the OPC UA stack.\n" +
-                        $"a value less than or equal zero will let the server revise the publishing interval.\nDefault: {OpcPublishingInterval}", (int i) => {
-                            if (i > 0 && i >= OpcSamplingInterval)
-                            {
-                                OpcPublishingInterval = i;
-                            }
-                            else
-                            {
-                                if (i <= 0)
+                        // Publishing configuration options
+                        { "pf|publishfile=", $"the filename to configure the nodes to publish.\nDefault: '{PublisherNodeConfigurationFilename}'", (string p) => PublisherNodeConfigurationFilename = p },
+                        { "tc|telemetryconfigfile=", $"the filename to configure the ingested telemetry\nDefault: '{PublisherTelemetryConfigurationFilename}'", (string p) => PublisherTelemetryConfigurationFilename = p },
+                        { "d|domain=", $"the domain OPC Publisher is working in. if specified this domain is appended (delimited by a ':' to the 'ApplicationURI' property when telemetry is sent to IoTHub.\n" +
+                                "The value must follow the syntactical rules of a DNS hostname.\nDefault: not set", (string s) => {
+                                Regex domainNameRegex = new Regex("^(([a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9\\-]*[a-zA-Z0-9])\\.)*([A-Za-z0-9]|[A-Za-z0-9][A-Za-z0-9\\-]*[A-Za-z0-9])$");
+                                if (domainNameRegex.IsMatch(s))
                                 {
-                                    OpcPublishingInterval = 0;
+                                    PublisherDomain = s;
                                 }
                                 else
                                 {
-                                    throw new OptionException($"The opcpublishinterval ({i}) must be larger than the opcsamplinginterval ({OpcSamplingInterval}).", "opcpublishinterval");
+                                    throw new OptionException("The shopfloor domain is not a valid DNS hostname.", "shopfloordomain");
                                 }
                             }
-                        }
-                    },
-                    { "ct|createsessiontimeout=", $"specify the timeout in seconds used when creating a session to an endpoint. On unsuccessful connection attemps a backoff up to {OpcSessionCreationBackoffMax} times the specified timeout value is used.\nMin: 1\nDefault: {OpcSessionCreationTimeout}", (uint u) => {
-                            if (u > 1)
-                            {
-                                OpcSessionCreationTimeout = u;
+                         },
+                        { "sw|sessionconnectwait=", $"specify the wait time in seconds publisher is trying to connect to disconnected endpoints and starts monitoring unmonitored items\nMin: 10\nDefault: {_publisherSessionConnectWaitSec}", (int i) => {
+                                if (i > 10)
+                                {
+                                    _publisherSessionConnectWaitSec = i;
+                                }
+                                else
+                                {
+                                    throw new OptionException("The sessionconnectwait must be greater than 10 sec", "sessionconnectwait");
+                                }
                             }
-                            else
-                            {
-                                throw new OptionException("The createsessiontimeout must be greater than 1 sec", "createsessiontimeout");
+                        },
+                        { "mq|monitoreditemqueuecapacity=", $"specify how many notifications of monitored items can be stored in the internal queue, if the data can not be sent quick enough to IoTHub\nMin: 1024\nDefault: {MonitoredItemsQueueCapacity}", (int i) => {
+                                if (i >= 1024)
+                                {
+                                    MonitoredItemsQueueCapacity = i;
+                                }
+                                else
+                                {
+                                    throw new OptionException("The monitoreditemqueueitems must be greater than 1024", "monitoreditemqueueitems");
+                                }
                             }
-                        }
-                    },
-                    { "ki|keepaliveinterval=", $"specify the interval in seconds the publisher is sending keep alive messages to the OPC servers on the endpoints it is connected to.\nMin: 2\nDefault: {OpcKeepAliveIntervalInSec}", (int i) => {
-                            if (i >= 2)
-                            {
-                                OpcKeepAliveIntervalInSec = i;
-                            }
-                            else
-                            {
-                                throw new OptionException("The keepaliveinterval must be greater or equal 2", "keepalivethreshold");
-                            }
-                        }
-                    },
-                    { "kt|keepalivethreshold=", $"specify the number of keep alive packets a server can miss, before the session is disconneced\nMin: 1\nDefault: {OpcKeepAliveDisconnectThreshold}", (uint u) => {
-                            if (u > 1)
-                            {
-                                OpcKeepAliveDisconnectThreshold = u;
-                            }
-                            else
-                            {
-                                throw new OptionException("The keepalivethreshold must be greater than 1", "keepalivethreshold");
-                            }
-                        }
-                    },
-                    { "st|opcstacktracemask=", $"the trace mask for the OPC stack. See github OPC .NET stack for definitions.\nTo enable IoTHub telemetry tracing set it to 711.\nDefault: {OpcStackTraceMask:X}  ({OpcStackTraceMask})", (int i) => {
-                            if (i >= 0)
-                            {
-                                OpcStackTraceMask = i;
-                            }
-                            else
-                            {
-                                throw new OptionException("The OPC stack trace mask must be larger or equal 0.", "opcstacktracemask");
-                            }
-                        }
-                    },
-                    { "as|autotrustservercerts=", $"the publisher trusts all servers it is establishing a connection to.\nDefault: {OpcPublisherAutoTrustServerCerts}", (bool b) => OpcPublisherAutoTrustServerCerts = b },
+                        },
+                        { "di|diagnosticsinterval=", $"shows publisher diagnostic info at the specified interval in seconds. 0 disables diagnostic output.\nDefault: {DiagnosticsInterval}", (uint u) => DiagnosticsInterval = u },
 
-                    // trust own public cert option
-                    { "tm|trustmyself=", $"the publisher certificate is put into the trusted certificate store automatically.\nDefault: {TrustMyself}", (bool b) => TrustMyself = b },
+                        { "vc|verboseconsole=", $"the output of publisher is shown on the console.\nDefault: {VerboseConsole}", (bool b) => VerboseConsole = b },
 
-                    // read the display name of the nodes to publish from the server and publish them instead of the node id
-                    { "fd|fetchdisplayname=", $"enable to read the display name of a published node from the server. this will increase the runtime.\nDefault: {FetchOpcNodeDisplayName}", (bool b) => FetchOpcNodeDisplayName = b },
+                        { "ns|noshutdown=", $"publisher can not be stopped by pressing a key on the console, but will run forever.\nDefault: {_noShutdown}", (bool b) => _noShutdown = b },
+                    
+                        // IoTHub specific options
+                        { "ih|iothubprotocol=", $"{(IsIotEdgeModule ? "not supported when running as IoTEdge module (Mqtt_Tcp_Only is enforced)\n" : $"the protocol to use for communication with Azure IoTHub (allowed values: {string.Join(", ", Enum.GetNames(IotHubProtocol.GetType()))}).\nDefault: {Enum.GetName(IotHubProtocol.GetType(), IotHubProtocol)}")}",
+                            (Microsoft.Azure.Devices.Client.TransportType p) => {
+                                if (IsIotEdgeModule)
+                                {
+                                    if (p != Microsoft.Azure.Devices.Client.TransportType.Mqtt_Tcp_Only)
+                                    {
+                                        WriteLine("When running as IoTEdge module Mqtt_Tcp_Only is enforced.");
+                                        IotHubProtocol = Microsoft.Azure.Devices.Client.TransportType.Mqtt_Tcp_Only;
+                                    }
+                                }
+                                else
+                                {
+                                    IotHubProtocol = p;
+                                }
+                            }
+                        },
+                        { "ms|iothubmessagesize=", $"the max size of a message which can be send to IoTHub. when telemetry of this size is available it will be sent.\n0 will enforce immediate send when telemetry is available\nMin: 0\nMax: {HubMessageSizeMax}\nDefault: {HubMessageSize}", (uint u) => {
+                                if (u >= 0 && u <= HubMessageSizeMax)
+                                {
+                                    HubMessageSize = u;
+                                }
+                                else
+                                {
+                                    throw new OptionException("The iothubmessagesize must be in the range between 1 and 256*1024.", "iothubmessagesize");
+                                }
+                            }
+                        },
+                        { "si|iothubsendinterval=", $"the interval in seconds when telemetry should be send to IoTHub. If 0, then only the iothubmessagesize parameter controls when telemetry is sent.\nDefault: '{DefaultSendIntervalSeconds}'", (int i) => {
+                                if (i >= 0)
+                                {
+                                    DefaultSendIntervalSeconds = i;
+                                }
+                                else
+                                {
+                                    throw new OptionException("The iothubsendinterval must be larger or equal 0.", "iothubsendinterval");
+                                }
+                            }
+                        },
+                        { "dc|deviceconnectionstring=", $"{(IsIotEdgeModule ? "not supported when running as IoTEdge module\n" : $"if publisher is not able to register itself with IoTHub, you can create a device with name <applicationname> manually and pass in the connectionstring of this device.\nDefault: none")}",
+                            (string dc) => DeviceConnectionString = (IsIotEdgeModule ? null : dc)
+                        },
+                        { "c|connectionstring=", $"the IoTHub owner connectionstring.\nDefault: none",
+                            (string cs) => IotHubOwnerConnectionString = cs
+                        },
 
-                    // own cert store options
-                    { "at|appcertstoretype=", $"the own application cert store type. \n(allowed values: Directory, X509Store)\nDefault: '{OpcOwnCertStoreType}'", (string s) => {
-                            if (s.Equals(X509Store, StringComparison.OrdinalIgnoreCase) || s.Equals(Directory, StringComparison.OrdinalIgnoreCase))
-                            {
-                                OpcOwnCertStoreType = s.Equals(X509Store, StringComparison.OrdinalIgnoreCase) ? X509Store : Directory;
-                                OpcOwnCertStorePath = s.Equals(X509Store, StringComparison.OrdinalIgnoreCase) ? OpcOwnCertX509StorePathDefault : OpcOwnCertDirectoryStorePathDefault;
+                        // opc server configuration options
+                        { "lf|logfile=", $"the filename of the logfile to use.\nDefault: './Logs/<applicationname>.log.txt'", (string l) => LogFileName = l },
+                        { "pn|portnum=", $"the server port of the publisher OPC server endpoint.\nDefault: {PublisherServerPort}", (ushort p) => PublisherServerPort = p },
+                        { "pa|path=", $"the enpoint URL path part of the publisher OPC server endpoint.\nDefault: '{PublisherServerPath}'", (string a) => PublisherServerPath = a },
+                        { "lr|ldsreginterval=", $"the LDS(-ME) registration interval in ms. If 0, then the registration is disabled.\nDefault: {LdsRegistrationInterval}", (int i) => {
+                                if (i >= 0)
+                                {
+                                    LdsRegistrationInterval = i;
+                                }
+                                else
+                                {
+                                    throw new OptionException("The ldsreginterval must be larger or equal 0.", "ldsreginterval");
+                                }
                             }
-                            else
-                            {
-                                throw new OptionException();
+                        },
+                        { "ot|operationtimeout=", $"the operation timeout of the publisher OPC UA client in ms.\nDefault: {OpcOperationTimeout}", (int i) => {
+                                if (i >= 0)
+                                {
+                                    OpcOperationTimeout = i;
+                                }
+                                else
+                                {
+                                    throw new OptionException("The operation timeout must be larger or equal 0.", "operationtimeout");
+                                }
                             }
-                        }
-                    },
-                    { "ap|appcertstorepath=", $"the path where the own application cert should be stored\nDefault (depends on store type):\n" +
-                            $"X509Store: '{OpcOwnCertX509StorePathDefault}'\n" +
-                            $"Directory: '{OpcOwnCertDirectoryStorePathDefault}'", (string s) => OpcOwnCertStorePath = s
-                    },
+                        },
+                        { "oi|opcsamplinginterval=", "the publisher is using this as default value in milliseconds to request the servers to sample the nodes with this interval\n" +
+                            "this value might be revised by the OPC UA servers to a supported sampling interval.\n" +
+                            "please check the OPC UA specification for details how this is handled by the OPC UA stack.\n" +
+                            "a negative value will set the sampling interval to the publishing interval of the subscription this node is on.\n" +
+                            $"0 will configure the OPC UA server to sample in the highest possible resolution and should be taken with care.\nDefault: {OpcSamplingInterval}", (int i) => OpcSamplingInterval = i
+                        },
+                        { "op|opcpublishinginterval=", "the publisher is using this as default value in milliseconds for the publishing interval setting of the subscriptions established to the OPC UA servers.\n" +
+                            "please check the OPC UA specification for details how this is handled by the OPC UA stack.\n" +
+                            $"a value less than or equal zero will let the server revise the publishing interval.\nDefault: {OpcPublishingInterval}", (int i) => {
+                                if (i > 0 && i >= OpcSamplingInterval)
+                                {
+                                    OpcPublishingInterval = i;
+                                }
+                                else
+                                {
+                                    if (i <= 0)
+                                    {
+                                        OpcPublishingInterval = 0;
+                                    }
+                                    else
+                                    {
+                                        throw new OptionException($"The opcpublishinterval ({i}) must be larger than the opcsamplinginterval ({OpcSamplingInterval}).", "opcpublishinterval");
+                                    }
+                                }
+                            }
+                        },
+                        { "ct|createsessiontimeout=", $"specify the timeout in seconds used when creating a session to an endpoint. On unsuccessful connection attemps a backoff up to {OpcSessionCreationBackoffMax} times the specified timeout value is used.\nMin: 1\nDefault: {OpcSessionCreationTimeout}", (uint u) => {
+                                if (u > 1)
+                                {
+                                    OpcSessionCreationTimeout = u;
+                                }
+                                else
+                                {
+                                    throw new OptionException("The createsessiontimeout must be greater than 1 sec", "createsessiontimeout");
+                                }
+                            }
+                        },
+                        { "ki|keepaliveinterval=", $"specify the interval in seconds the publisher is sending keep alive messages to the OPC servers on the endpoints it is connected to.\nMin: 2\nDefault: {OpcKeepAliveIntervalInSec}", (int i) => {
+                                if (i >= 2)
+                                {
+                                    OpcKeepAliveIntervalInSec = i;
+                                }
+                                else
+                                {
+                                    throw new OptionException("The keepaliveinterval must be greater or equal 2", "keepalivethreshold");
+                                }
+                            }
+                        },
+                        { "kt|keepalivethreshold=", $"specify the number of keep alive packets a server can miss, before the session is disconneced\nMin: 1\nDefault: {OpcKeepAliveDisconnectThreshold}", (uint u) => {
+                                if (u > 1)
+                                {
+                                    OpcKeepAliveDisconnectThreshold = u;
+                                }
+                                else
+                                {
+                                    throw new OptionException("The keepalivethreshold must be greater than 1", "keepalivethreshold");
+                                }
+                            }
+                        },
+                        { "st|opcstacktracemask=", $"the trace mask for the OPC stack. See github OPC .NET stack for definitions.\nTo enable IoTHub telemetry tracing set it to 711.\nDefault: {OpcStackTraceMask:X}  ({OpcStackTraceMask})", (int i) => {
+                                if (i >= 0)
+                                {
+                                    OpcStackTraceMask = i;
+                                }
+                                else
+                                {
+                                    throw new OptionException("The OPC stack trace mask must be larger or equal 0.", "opcstacktracemask");
+                                }
+                            }
+                        },
+                        { "as|autotrustservercerts=", $"the publisher trusts all servers it is establishing a connection to.\nDefault: {OpcPublisherAutoTrustServerCerts}", (bool b) => OpcPublisherAutoTrustServerCerts = b },
+                        { "aa|autoaccept", $"same as autotrustservercerts\nDefault: {OpcPublisherAutoTrustServerCerts}", b => OpcPublisherAutoTrustServerCerts = b != null },
 
-                    // trusted cert store options
-                    {
-                    "tt|trustedcertstoretype=", $"the trusted cert store type. \n(allowed values: Directory, X509Store)\nDefault: {OpcTrustedCertStoreType}", (string s) => {
-                            if (s.Equals(X509Store, StringComparison.OrdinalIgnoreCase) || s.Equals(Directory, StringComparison.OrdinalIgnoreCase))
-                            {
-                                OpcTrustedCertStoreType = s.Equals(X509Store, StringComparison.OrdinalIgnoreCase) ? X509Store : Directory;
-                                OpcTrustedCertStorePath = s.Equals(X509Store, StringComparison.OrdinalIgnoreCase) ? OpcTrustedCertX509StorePathDefault : OpcTrustedCertDirectoryStorePathDefault;
-                            }
-                            else
-                            {
-                                throw new OptionException();
-                            }
-                        }
-                    },
-                    { "tp|trustedcertstorepath=", $"the path of the trusted cert store\nDefault (depends on store type):\n" +
-                            $"X509Store: '{OpcTrustedCertX509StorePathDefault}'\n" +
-                            $"Directory: '{OpcTrustedCertDirectoryStorePathDefault}'", (string s) => OpcTrustedCertStorePath = s
-                    },
+                        // trust own public cert option
+                        { "tm|trustmyself=", $"the publisher certificate is put into the trusted certificate store automatically.\nDefault: {TrustMyself}", (bool b) => TrustMyself = b  },
+                        { "to|trustowncert", $"the publisher certificate is put into the trusted certificate store automatically.\nDefault: {TrustMyself}", t => TrustMyself = t != null  },
 
-                    // rejected cert store options
-                    { "rt|rejectedcertstoretype=", $"the rejected cert store type. \n(allowed values: Directory, X509Store)\nDefault: {OpcRejectedCertStoreType}", (string s) => {
-                            if (s.Equals(X509Store, StringComparison.OrdinalIgnoreCase) || s.Equals(Directory, StringComparison.OrdinalIgnoreCase))
-                            {
-                                OpcRejectedCertStoreType = s.Equals(X509Store, StringComparison.OrdinalIgnoreCase) ? X509Store : Directory;
-                                OpcRejectedCertStorePath = s.Equals(X509Store, StringComparison.OrdinalIgnoreCase) ? OpcRejectedCertX509StorePathDefault : OpcRejectedCertDirectoryStorePathDefault;
-                            }
-                            else
-                            {
-                                throw new OptionException();
-                            }
-                        }
-                    },
-                    { "rp|rejectedcertstorepath=", $"the path of the rejected cert store\nDefault (depends on store type):\n" +
-                            $"X509Store: '{OpcRejectedCertX509StorePathDefault}'\n" +
-                            $"Directory: '{OpcRejectedCertDirectoryStorePathDefault}'", (string s) => OpcRejectedCertStorePath = s
-                    },
+                        // read the display name of the nodes to publish from the server and publish them instead of the node id
+                        { "fd|fetchdisplayname=", $"enable to read the display name of a published node from the server. this will increase the runtime.\nDefault: {FetchOpcNodeDisplayName}", (bool b) => FetchOpcNodeDisplayName = b },
 
-                    // issuer cert store options
-                    {
-                    "it|issuercertstoretype=", $"the trusted issuer cert store type. \n(allowed values: Directory, X509Store)\nDefault: {OpcIssuerCertStoreType}", (string s) => {
-                            if (s.Equals(X509Store, StringComparison.OrdinalIgnoreCase) || s.Equals(Directory, StringComparison.OrdinalIgnoreCase))
-                            {
-                                OpcIssuerCertStoreType = s.Equals(X509Store, StringComparison.OrdinalIgnoreCase) ? X509Store : Directory;
-                                OpcIssuerCertStorePath = s.Equals(X509Store, StringComparison.OrdinalIgnoreCase) ? OpcIssuerCertX509StorePathDefault : OpcIssuerCertDirectoryStorePathDefault;
+                        // own cert store options
+                        { "at|appcertstoretype=", $"the own application cert store type. \n(allowed values: Directory, X509Store)\nDefault: '{OpcOwnCertStoreType}'", (string s) => {
+                                if (s.Equals(X509Store, StringComparison.OrdinalIgnoreCase) || s.Equals(Directory, StringComparison.OrdinalIgnoreCase))
+                                {
+                                    OpcOwnCertStoreType = s.Equals(X509Store, StringComparison.OrdinalIgnoreCase) ? X509Store : Directory;
+                                    OpcOwnCertStorePath = s.Equals(X509Store, StringComparison.OrdinalIgnoreCase) ? OpcOwnCertX509StorePathDefault : OpcOwnCertDirectoryStorePathDefault;
+                                }
+                                else
+                                {
+                                    throw new OptionException();
+                                }
                             }
-                            else
-                            {
-                                throw new OptionException();
-                            }
-                        }
-                    },
-                    { "ip|issuercertstorepath=", $"the path of the trusted issuer cert store\nDefault (depends on store type):\n" +
-                            $"X509Store: '{OpcIssuerCertX509StorePathDefault}'\n" +
-                            $"Directory: '{OpcIssuerCertDirectoryStorePathDefault}'", (string s) => OpcIssuerCertStorePath = s
-                    },
+                        },
+                        { "ap|appcertstorepath=", $"the path where the own application cert should be stored\nDefault (depends on store type):\n" +
+                                $"X509Store: '{OpcOwnCertX509StorePathDefault}'\n" +
+                                $"Directory: '{OpcOwnCertDirectoryStorePathDefault}'", (string s) => OpcOwnCertStorePath = s
+                        },
 
-                    // device connection string cert store options
-                    { "dt|devicecertstoretype=", $"the iothub device cert store type. \n(allowed values: Directory, X509Store)\nDefault: {IotDeviceCertStoreType}", (string s) => {
-                            if (s.Equals(X509Store, StringComparison.OrdinalIgnoreCase) || s.Equals(Directory, StringComparison.OrdinalIgnoreCase))
-                            {
-                                IotDeviceCertStoreType = s.Equals(X509Store, StringComparison.OrdinalIgnoreCase) ? X509Store : Directory;
-                                IotDeviceCertStorePath = s.Equals(X509Store, StringComparison.OrdinalIgnoreCase) ? IotDeviceCertX509StorePathDefault : IotDeviceCertDirectoryStorePathDefault;
+                        // trusted cert store options
+                        {
+                        "tt|trustedcertstoretype=", $"the trusted cert store type. \n(allowed values: Directory, X509Store)\nDefault: {OpcTrustedCertStoreType}", (string s) => {
+                                if (s.Equals(X509Store, StringComparison.OrdinalIgnoreCase) || s.Equals(Directory, StringComparison.OrdinalIgnoreCase))
+                                {
+                                    OpcTrustedCertStoreType = s.Equals(X509Store, StringComparison.OrdinalIgnoreCase) ? X509Store : Directory;
+                                    OpcTrustedCertStorePath = s.Equals(X509Store, StringComparison.OrdinalIgnoreCase) ? OpcTrustedCertX509StorePathDefault : OpcTrustedCertDirectoryStorePathDefault;
+                                }
+                                else
+                                {
+                                    throw new OptionException();
+                                }
                             }
-                            else
-                            {
-                                throw new OptionException();
+                        },
+                        { "tp|trustedcertstorepath=", $"the path of the trusted cert store\nDefault (depends on store type):\n" +
+                                $"X509Store: '{OpcTrustedCertX509StorePathDefault}'\n" +
+                                $"Directory: '{OpcTrustedCertDirectoryStorePathDefault}'", (string s) => OpcTrustedCertStorePath = s
+                        },
+
+                        // rejected cert store options
+                        { "rt|rejectedcertstoretype=", $"the rejected cert store type. \n(allowed values: Directory, X509Store)\nDefault: {OpcRejectedCertStoreType}", (string s) => {
+                                if (s.Equals(X509Store, StringComparison.OrdinalIgnoreCase) || s.Equals(Directory, StringComparison.OrdinalIgnoreCase))
+                                {
+                                    OpcRejectedCertStoreType = s.Equals(X509Store, StringComparison.OrdinalIgnoreCase) ? X509Store : Directory;
+                                    OpcRejectedCertStorePath = s.Equals(X509Store, StringComparison.OrdinalIgnoreCase) ? OpcRejectedCertX509StorePathDefault : OpcRejectedCertDirectoryStorePathDefault;
+                                }
+                                else
+                                {
+                                    throw new OptionException();
+                                }
                             }
-                        }
-                    },
-                    { "dp|devicecertstorepath=", $"the path of the iot device cert store\nDefault Default (depends on store type):\n" +
-                            $"X509Store: '{IotDeviceCertX509StorePathDefault}'\n" +
-                            $"Directory: '{IotDeviceCertDirectoryStorePathDefault}'", (string s) => IotDeviceCertStorePath = s
-                    },
+                        },
+                        { "rp|rejectedcertstorepath=", $"the path of the rejected cert store\nDefault (depends on store type):\n" +
+                                $"X509Store: '{OpcRejectedCertX509StorePathDefault}'\n" +
+                                $"Directory: '{OpcRejectedCertDirectoryStorePathDefault}'", (string s) => OpcRejectedCertStorePath = s
+                        },
 
-                    // misc
-                    { "h|help", "show this message and exit", h => shouldShowHelp = h != null },
-                };
+                        // issuer cert store options
+                        {
+                        "it|issuercertstoretype=", $"the trusted issuer cert store type. \n(allowed values: Directory, X509Store)\nDefault: {OpcIssuerCertStoreType}", (string s) => {
+                                if (s.Equals(X509Store, StringComparison.OrdinalIgnoreCase) || s.Equals(Directory, StringComparison.OrdinalIgnoreCase))
+                                {
+                                    OpcIssuerCertStoreType = s.Equals(X509Store, StringComparison.OrdinalIgnoreCase) ? X509Store : Directory;
+                                    OpcIssuerCertStorePath = s.Equals(X509Store, StringComparison.OrdinalIgnoreCase) ? OpcIssuerCertX509StorePathDefault : OpcIssuerCertDirectoryStorePathDefault;
+                                }
+                                else
+                                {
+                                    throw new OptionException();
+                                }
+                            }
+                        },
+                        { "ip|issuercertstorepath=", $"the path of the trusted issuer cert store\nDefault (depends on store type):\n" +
+                                $"X509Store: '{OpcIssuerCertX509StorePathDefault}'\n" +
+                                $"Directory: '{OpcIssuerCertDirectoryStorePathDefault}'", (string s) => OpcIssuerCertStorePath = s
+                        },
 
-                List<string> arguments = new List<string>();
-                int maxAllowedArguments = 2;
-                int applicationNameIndex = 0;
-                int connectionStringIndex = 1;
-                if (IsIotEdgeModule)
-                {
-                    maxAllowedArguments = 3;
-                    applicationNameIndex = 1;
-                    connectionStringIndex = 2;
-                }
+                        // device connection string cert store options
+                        { "dt|devicecertstoretype=", $"the iothub device cert store type. \n(allowed values: Directory, X509Store)\nDefault: {IotDeviceCertStoreType}", (string s) => {
+                                if (s.Equals(X509Store, StringComparison.OrdinalIgnoreCase) || s.Equals(Directory, StringComparison.OrdinalIgnoreCase))
+                                {
+                                    IotDeviceCertStoreType = s.Equals(X509Store, StringComparison.OrdinalIgnoreCase) ? X509Store : Directory;
+                                    IotDeviceCertStorePath = s.Equals(X509Store, StringComparison.OrdinalIgnoreCase) ? IotDeviceCertX509StorePathDefault : IotDeviceCertDirectoryStorePathDefault;
+                                }
+                                else
+                                {
+                                    throw new OptionException();
+                                }
+                            }
+                        },
+                        { "dp|devicecertstorepath=", $"the path of the iot device cert store\nDefault Default (depends on store type):\n" +
+                                $"X509Store: '{IotDeviceCertX509StorePathDefault}'\n" +
+                                $"Directory: '{IotDeviceCertDirectoryStorePathDefault}'", (string s) => IotDeviceCertStorePath = s
+                        },
+
+                        // misc
+                        { "i|install", $"register OPC Publisher with IoTHub and then exits.\nDefault:  {_installOnly}", i => _installOnly = i != null },
+                        { "h|help", "show this message and exit", h => shouldShowHelp = h != null },
+                    };
+
+
+                List<string> extraArgs = new List<string>();
                 try
                 {
                     // parse the command line
-                    arguments = options.Parse(args);
+                    extraArgs = options.Parse(args);
                 }
                 catch (OptionException e)
                 {
@@ -357,44 +392,70 @@ namespace OpcPublisher
                     return;
                 }
 
-                // Validate and parse arguments.
-                if (arguments.Count > maxAllowedArguments || shouldShowHelp)
+                // Validate and parse extra arguments.
+                const int APP_NAME_INDEX = 0;
+                const int CS_INDEX = 1;
+                switch (extraArgs.Count)
                 {
-                    Usage(options);
+                    case 0:
+                        {
+                            ApplicationName = Utils.GetHostName();
+                            break;
+                        }
+                    case 1:
+                        {
+                            ApplicationName = extraArgs[APP_NAME_INDEX];
+                            break;
+                        }
+                    case 2:
+                        {
+                            ApplicationName = extraArgs[APP_NAME_INDEX];
+                            if (IsIotEdgeModule)
+                            {
+                                WriteLine($"Warning: connection string parameter is not supported in IoTEdge context, given parameter is ignored");
+                            }
+                            else
+                            {
+                                IotHubOwnerConnectionString = extraArgs[CS_INDEX];
+                            }
+                            break;
+                        }
+                    default:
+                        {
+                            Usage(options);
+                            return;
+                        }
+                }
+
+                // install only if requested
+                if (_installOnly)
+                {
+                    // initialize and start IoTHub communication
+                    IotHubCommunication = new IotHubCommunication(ShutdownTokenSource.Token);
+                    if (!await IotHubCommunication.InitAsync())
+                    {
+                        return;
+                    }
+                    WriteLine("Installation completed. Exiting...");
                     return;
                 }
-                else if (arguments.Count == maxAllowedArguments)
-                {
-                    ApplicationName = arguments[applicationNameIndex];
-                    IotHubOwnerConnectionString = arguments[connectionStringIndex];
-                }
-                else if (arguments.Count == maxAllowedArguments - 1)
-                {
-                    ApplicationName = arguments[applicationNameIndex];
-                }
-                else
-                {
-                    ApplicationName = Utils.GetHostName();
-                }
 
+                // start operation
                 WriteLine("Publisher is starting up...");
-
-                // Shutdown token sources.
-                ShutdownTokenSource = new CancellationTokenSource();
 
                 // init OPC configuration and tracing
                 OpcStackConfiguration opcStackConfiguration = new OpcStackConfiguration();
                 await opcStackConfiguration.ConfigureAsync();
-                _opcTraceInitialized = true;
+                _opcTraceInitialized = true;_opcTraceInitialized = true;
 
                 // log shopfloor domain setting
-                if (string.IsNullOrEmpty(ShopfloorDomain))
+                if (string.IsNullOrEmpty(PublisherDomain))
                 {
-                    Trace("There is no shopfloor domain configured.");
+                    Trace("There is no domain configured.");
                 }
                 else
                 {
-                    Trace($"Publisher is in shopfloor domain '{ShopfloorDomain}'.");
+                    Trace($"Publisher is in domain '{PublisherDomain}'.");
                 }
 
                 // Set certificate validator.
@@ -425,7 +486,7 @@ namespace OpcPublisher
                 }
 
                 // read telemetry configuration file
-                PublisherTelemetryConfiguration.Init();
+                PublisherTelemetryConfiguration.Init(ShutdownTokenSource.Token);
                 if (!await PublisherTelemetryConfiguration.ReadConfigAsync())
                 {
                     return;
@@ -438,11 +499,24 @@ namespace OpcPublisher
                     return;
                 }
 
-                // initialize and start IoTHub messaging
-                IotHubCommunication = new IotHubMessaging();
-                if (!await IotHubCommunication.InitAsync())
+                // initialize hub communication
+                if (IsIotEdgeModule)
                 {
-                    return;
+                    // initialize and start EdgeHub communication
+                    IotEdgeHubCommunication = new IotEdgeHubCommunication(ShutdownTokenSource.Token);
+                    if (!await IotEdgeHubCommunication.InitAsync())
+                    {
+                        return;
+                    }
+                }
+                else
+                {
+                    // initialize and start IoTHub communication
+                    IotHubCommunication = new IotHubCommunication(ShutdownTokenSource.Token);
+                    if (!await IotHubCommunication.InitAsync())
+                    {
+                        return;
+                    }
                 }
 
                 if (!await PublisherNodeConfiguration.CreateOpcPublishingDataAsync())
@@ -715,5 +789,6 @@ namespace OpcPublisher
         private static bool _opcTraceInitialized = false;
         private static int _publisherSessionConnectWaitSec = 10;
         private static bool _noShutdown = false;
+        private static bool _installOnly = false;
     }
 }

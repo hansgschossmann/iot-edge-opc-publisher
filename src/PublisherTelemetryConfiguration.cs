@@ -10,6 +10,7 @@ namespace OpcPublisher
     using System.IO;
     using System.Linq;
     using System.Text.RegularExpressions;
+    using System.Threading;
     using static OpcPublisher.Workarounds.TraceWorkaround;
 
     public class PublisherTelemetryConfiguration
@@ -257,6 +258,7 @@ namespace OpcPublisher
                 _monitoredItem = new MonitoredItemTelemetryConfiguration();
                 _value = new ValueTelemetryConfiguration();
             }
+
             public string ForEndpointUrl { get; set; }
 
             public Settings EndpointUrl
@@ -334,12 +336,14 @@ namespace OpcPublisher
         /// <summary>
         /// Initialize resources for the telemetry configuration.
         /// </summary>
-        public static void Init()
+        public static void Init(CancellationToken shutdownToken)
         {
             _telemetryConfiguration = null;
             _endpointTelemetryConfigurations = new List<EndpointTelemetryConfiguration>();
             _defaultEndpointTelemetryConfiguration = null;
             _endpointTelemetryConfigurationCache = new Dictionary<string, EndpointTelemetryConfiguration>();
+            _shutdownToken = shutdownToken;
+            _endpointTelemetrySemaphore = new SemaphoreSlim(1);
         }
 
         /// <summary>
@@ -352,6 +356,8 @@ namespace OpcPublisher
             _endpointTelemetryConfigurations = null;
             _defaultEndpointTelemetryConfiguration = null;
             _endpointTelemetryConfigurationCache = null;
+            _endpointTelemetrySemaphore.Dispose();
+            _endpointTelemetrySemaphore = null;
         }
 
 
@@ -360,12 +366,21 @@ namespace OpcPublisher
         /// </summary>
         public static EndpointTelemetryConfiguration GetEndpointTelemetryConfiguration(string endpointUrl)
         {
-            // lookup configuration in cache and return it or return default configuration
-            if (_endpointTelemetryConfigurationCache.ContainsKey(endpointUrl))
+            try
             {
-                return _endpointTelemetryConfigurationCache[endpointUrl];
+                _endpointTelemetrySemaphore.Wait(_shutdownToken);
+
+                // lookup configuration in cache and return it or return default configuration
+                if (_endpointTelemetryConfigurationCache.ContainsKey(endpointUrl))
+                {
+                    return _endpointTelemetryConfigurationCache[endpointUrl];
+                }
+                return _defaultEndpointTelemetryConfiguration;
             }
-            return _defaultEndpointTelemetryConfiguration;
+            finally
+            {
+                _endpointTelemetrySemaphore.Release();
+            }
         }
 
         /// <summary>
@@ -540,8 +555,17 @@ namespace OpcPublisher
                     // set defaults for unset values
                     UpdateEndpointTelemetryConfiguration(config);
 
-                    // add the endpoint configuration to the lookup cache
-                    _endpointTelemetryConfigurationCache.Add(config.ForEndpointUrl, config);
+                    try
+                    {
+                        await _endpointTelemetrySemaphore.WaitAsync(_shutdownToken);
+
+                        // add the endpoint configuration to the lookup cache
+                        _endpointTelemetryConfigurationCache.Add(config.ForEndpointUrl, config);
+                    }
+                    finally
+                    {
+                        _endpointTelemetrySemaphore.Release();
+                    }
                 }
             }
             catch (Exception e)
@@ -558,5 +582,7 @@ namespace OpcPublisher
         private static List<EndpointTelemetryConfiguration> _endpointTelemetryConfigurations;
         private static EndpointTelemetryConfiguration _defaultEndpointTelemetryConfiguration;
         private static Dictionary<string, EndpointTelemetryConfiguration> _endpointTelemetryConfigurationCache;
+        private static SemaphoreSlim _endpointTelemetrySemaphore = null;
+        private static CancellationToken _shutdownToken;
     }
 }

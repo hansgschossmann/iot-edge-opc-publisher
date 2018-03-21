@@ -8,7 +8,7 @@ namespace OpcPublisher
 {
     using Newtonsoft.Json;
     using System.Linq;
-    using static IotHubMessaging;
+    using static IotHubCommunication;
     using static OpcPublisher.OpcMonitoredItem;
     using static OpcPublisher.Program;
     using static OpcPublisher.Workarounds.TraceWorkaround;

@@ -5,7 +5,8 @@ using System.Threading.Tasks;
 
 namespace OpcPublisher
 {
-    using static IotHubMessaging;
+    using static HubCommunication;
+    using static IotHubCommunication;
     using static OpcPublisher.Workarounds.TraceWorkaround;
     using static Program;
     using static PublisherNodeConfiguration;
@@ -90,8 +91,8 @@ namespace OpcPublisher
                     Trace("---------------------------------");
                     Trace($"current working set in MB: {Process.GetCurrentProcess().WorkingSet64 / (1024 * 1024)}");
                     Trace($"--si setting: {DefaultSendIntervalSeconds}");
-                    Trace($"--ms setting: {IotHubMessageSize}");
-                    Trace($"--ih setting: {IotHubProtocol}");
+                    Trace($"--ms setting: {HubMessageSize}");
+                    Trace($"--ih setting: {HubProtocol}");
                     Trace("==========================================================================");
                 }
                 catch

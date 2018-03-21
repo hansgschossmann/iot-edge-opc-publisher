@@ -166,26 +166,29 @@ namespace OpcPublisher
                     {
                         PublisherNodeConfigurationFileSemaphore.Release();
                     }
-                    Trace($"Loaded {_configurationFileEntries.Count} config file entry/entries.");
 
-                    foreach (var publisherConfigFileEntry in _configurationFileEntries)
+                    if (_configurationFileEntries != null)
                     {
-                        if (publisherConfigFileEntry.NodeId == null)
+                        Trace($"Loaded {_configurationFileEntries.Count} config file entry/entries.");
+                        foreach (var publisherConfigFileEntry in _configurationFileEntries)
                         {
-                            // new node configuration syntax.
-                            foreach (var opcNode in publisherConfigFileEntry.OpcNodes)
+                            if (publisherConfigFileEntry.NodeId == null)
                             {
-                                ExpandedNodeId expandedNodeId = ExpandedNodeId.Parse(opcNode.ExpandedNodeId);
-                                _nodePublishingConfiguration.Add(new NodePublishingConfiguration(expandedNodeId, publisherConfigFileEntry.EndpointUri, publisherConfigFileEntry.UseSecurity, opcNode.OpcSamplingInterval ?? OpcSamplingInterval, opcNode.OpcPublishingInterval ?? OpcPublishingInterval));
+                                // new node configuration syntax.
+                                foreach (var opcNode in publisherConfigFileEntry.OpcNodes)
+                                {
+                                    ExpandedNodeId expandedNodeId = ExpandedNodeId.Parse(opcNode.ExpandedNodeId);
+                                    _nodePublishingConfiguration.Add(new NodePublishingConfiguration(expandedNodeId, publisherConfigFileEntry.EndpointUri, publisherConfigFileEntry.UseSecurity, opcNode.OpcSamplingInterval ?? OpcSamplingInterval, opcNode.OpcPublishingInterval ?? OpcPublishingInterval));
+                                }
                             }
-                        }
-                        else
-                        {
-                            // NodeId (ns=) format node configuration syntax using default sampling and publishing interval.
-                            _nodePublishingConfiguration.Add(new NodePublishingConfiguration(publisherConfigFileEntry.NodeId, publisherConfigFileEntry.EndpointUri, publisherConfigFileEntry.UseSecurity, OpcSamplingInterval, OpcPublishingInterval));
-                            // give user a warning that the syntax is obsolete
-                            Trace($"Please update the syntax of the configuration file and use ExpandedNodeId instead of NodeId property name for node with identifier '{publisherConfigFileEntry.NodeId.ToString()}' on EndpointUrl '{publisherConfigFileEntry.EndpointUri.AbsoluteUri}'.");
+                            else
+                            {
+                                // NodeId (ns=) format node configuration syntax using default sampling and publishing interval.
+                                _nodePublishingConfiguration.Add(new NodePublishingConfiguration(publisherConfigFileEntry.NodeId, publisherConfigFileEntry.EndpointUri, publisherConfigFileEntry.UseSecurity, OpcSamplingInterval, OpcPublishingInterval));
+                                // give user a warning that the syntax is obsolete
+                                Trace($"Please update the syntax of the configuration file and use ExpandedNodeId instead of NodeId property name for node with identifier '{publisherConfigFileEntry.NodeId.ToString()}' on EndpointUrl '{publisherConfigFileEntry.EndpointUri.AbsoluteUri}'.");
 
+                            }
                         }
                     }
                 }

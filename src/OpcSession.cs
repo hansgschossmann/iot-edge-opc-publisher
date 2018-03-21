@@ -134,7 +134,7 @@ namespace OpcPublisher
         }
 
         /// <summary>
-        /// Class used to pass data from the MonitoredItem notification to the IoTHub message processing.
+        /// Class used to pass data from the MonitoredItem notification to the hub message processing.
         /// </summary>
         public class MessageData
         {
@@ -225,11 +225,11 @@ namespace OpcPublisher
                     return;
                 }
 
-                // update the required message data to pass only the required data to IotHubMessaging
+                // update the required message data to pass only the required data to HubCommunication
                 MessageData messageData = new MessageData();
                 EndpointTelemetryConfiguration telemetryConfiguration = GetEndpointTelemetryConfiguration(EndpointUri.AbsoluteUri);
 
-                // the endpoint URL is required to allow IotHubMessaging lookup the telemetry configuration
+                // the endpoint URL is required to allow HubCommunication lookup the telemetry configuration
                 messageData.EndpointUrl = EndpointUri.AbsoluteUri;
                 if (telemetryConfiguration.NodeId.Publish == true)
                 {
@@ -237,7 +237,7 @@ namespace OpcPublisher
                 }
                 if (telemetryConfiguration.MonitoredItem.ApplicationUri.Publish == true)
                 {
-                    messageData.ApplicationUri = (monitoredItem.Subscription.Session.Endpoint.Server.ApplicationUri + (string.IsNullOrEmpty(OpcSession.ShopfloorDomain) ? "" : $":{OpcSession.ShopfloorDomain}"));
+                    messageData.ApplicationUri = (monitoredItem.Subscription.Session.Endpoint.Server.ApplicationUri + (string.IsNullOrEmpty(OpcSession.PublisherDomain) ? "" : $":{OpcSession.PublisherDomain}"));
                 }
                 if (telemetryConfiguration.MonitoredItem.DisplayName.Publish == true && monitoredItem.DisplayName != null)
                 {
@@ -313,7 +313,7 @@ namespace OpcPublisher
                 Trace(Utils.TraceMasks.OperationDetail, $"   EndpointUrl: {messageData.EndpointUrl}");
                 Trace(Utils.TraceMasks.OperationDetail, $"   DisplayName: {messageData.DisplayName}");
                 Trace(Utils.TraceMasks.OperationDetail, $"   Value: {messageData.Value}");
-                IotHubCommunication.Enqueue(messageData);
+                HubCommunication.Enqueue(messageData);
             }
             catch (Exception e)
             {
@@ -385,10 +385,10 @@ namespace OpcPublisher
             set => _fetchOpcNodeDisplayName = value;
         }
 
-        public static string ShopfloorDomain
+        public static string PublisherDomain
         {
-            get => _shopfloorDomain;
-            set => _shopfloorDomain = value;
+            get => _publisherDomain;
+            set => _publisherDomain = value;
         }
 
         public bool UseSecurity
@@ -458,9 +458,9 @@ namespace OpcPublisher
             MissedKeepAlives = 0;
             PublishingInterval = OpcPublishingInterval;
             _useSecurity = useSecurity;
-            _opcSessionSemaphore = new SemaphoreSlim(1);
             _sessionCancelationTokenSource = new CancellationTokenSource();
             _sessionCancelationToken = _sessionCancelationTokenSource.Token;
+            _opcSessionSemaphore = new SemaphoreSlim(1);
             _namespaceTable = new NamespaceTable();
             _telemetryConfiguration = GetEndpointTelemetryConfiguration(endpointUri.AbsoluteUri);
         }
@@ -1389,7 +1389,7 @@ namespace OpcPublisher
             _opcSessionSemaphore.Release();
         }
 
-        private static string _shopfloorDomain;
+        private static string _publisherDomain;
         private static bool _fetchOpcNodeDisplayName = false;
         private bool _useSecurity = true;
         private SemaphoreSlim _opcSessionSemaphore;
