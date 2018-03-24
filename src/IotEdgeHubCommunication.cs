@@ -10,7 +10,7 @@ namespace OpcPublisher
     using System.IO;
     using System.Runtime.InteropServices;
     using System.Security.Cryptography.X509Certificates;
-    using static OpcPublisher.Workarounds.TraceWorkaround;
+    using static Program;
 
     /// <summary>
     /// Class to handle all IoTEdge communication.
@@ -33,19 +33,19 @@ namespace OpcPublisher
             if (string.IsNullOrWhiteSpace(certPath))
             {
                 // We cannot proceed further without a proper cert file
-                Trace($"Missing path to certificate collection file: {certPath}");
+                Logger.Information($"Missing path to certificate collection file: {certPath}");
                 throw new InvalidOperationException("Missing path to certificate file.");
             }
             else if (!File.Exists(certPath))
             {
                 // We cannot proceed further without a proper cert file
-                Trace($"Missing path to certificate collection file: {certPath}");
+                Logger.Error($"Missing path to certificate collection file: {certPath}");
                 throw new InvalidOperationException("Missing certificate file.");
             }
             X509Store store = new X509Store(StoreName.Root, StoreLocation.CurrentUser);
             store.Open(OpenFlags.ReadWrite);
             store.Add(new X509Certificate2(X509Certificate2.CreateFromCertFile(certPath)));
-            Trace("Added IoT EdgeHub Cert: " + certPath);
+            Logger.Information("Added IoT EdgeHub Cert: " + certPath);
             store.Close();
         }
 
@@ -73,14 +73,14 @@ namespace OpcPublisher
                 // during dev you might want to bypass the cert verification. It is highly recommended to verify certs systematically in production
                 if (bypassCertVerification)
                 {
-                    Trace($"ATTENTION: You are bypassing the IoTEdgeHub security cert verfication. Please ensure this was intentional.");
+                    Logger.Information($"ATTENTION: You are bypassing the IoTEdgeHub security cert verfication. Please ensure this was intentional.");
                     mqttSettings.RemoteCertificateValidationCallback = (sender, certificate, chain, sslPolicyErrors) => true;
                 }
                 ITransportSettings[] transportSettings = { mqttSettings };
 
                 // connect to EdgeHub
                 HubProtocol = TransportType.Mqtt_Tcp_Only;
-                Trace($"Create IoTEdgeHub client with connection string using '{HubProtocol}' for communication.");
+                Logger.Information($"Create IoTEdgeHub client with connection string using '{HubProtocol}' for communication.");
                 DeviceClient hubClient = DeviceClient.CreateFromConnectionString(edgeHubConnectionString, transportSettings);
 
                 if (await InitHubCommunicationAsync(hubClient, TransportType.Mqtt_Tcp_Only))
@@ -95,7 +95,7 @@ namespace OpcPublisher
             }
             catch (Exception e)
             {
-                Trace(e, "Error in IoTEdgeHub initialization.)");
+                Logger.Error(e, "Error in IoTEdgeHub initialization.)");
                 return false;
             }
         }
@@ -121,7 +121,7 @@ namespace OpcPublisher
             {
                 foreach (Exception ex in e.InnerExceptions)
                 {
-                    Trace(ex, "Error in OpcAnnouncements message handler.");
+                    Logger.Error(ex, "Error in OpcAnnouncements message handler.");
                 }
                 // Indicate that the message treatment is not completed
                 DeviceClient hubClient = (DeviceClient)userContext;
@@ -129,7 +129,7 @@ namespace OpcPublisher
             }
             catch (Exception e)
             {
-                Trace(e, "Error in OpcAnnouncements message handler.");
+                Logger.Error(e, "Error in OpcAnnouncements message handler.");
                 // Indicate that the message treatment is not completed
                 DeviceClient hubClient = (DeviceClient)userContext;
                 return MessageResponse.Abandoned;
@@ -157,7 +157,7 @@ namespace OpcPublisher
             {
                 foreach (Exception ex in e.InnerExceptions)
                 {
-                    Trace(ex, "Error in PublishNode message handler.");
+                    Logger.Error(ex, "Error in PublishNode message handler.");
                 }
                 // Indicate that the message treatment is not completed
                 DeviceClient hubClient = (DeviceClient)userContext;
@@ -165,7 +165,7 @@ namespace OpcPublisher
             }
             catch (Exception e)
             {
-                Trace(e, "Error in PublishNode message handler.");
+                Logger.Error(e, "Error in PublishNode message handler.");
                 // Indicate that the message treatment is not completed
                 DeviceClient hubClient = (DeviceClient)userContext;
                 return MessageResponse.Abandoned;
@@ -193,7 +193,7 @@ namespace OpcPublisher
             {
                 foreach (Exception ex in e.InnerExceptions)
                 {
-                    Trace(ex, "Error in UnublishNode message handler.");
+                    Logger.Error(ex, "Error in UnublishNode message handler.");
                 }
                 // Indicate that the message treatment is not completed
                 DeviceClient hubClient = (DeviceClient)userContext;
@@ -201,7 +201,7 @@ namespace OpcPublisher
             }
             catch (Exception e)
             {
-                Trace(e, "Error in UnublishNode message handler.");
+                Logger.Error(e, "Error in UnublishNode message handler.");
                 // Indicate that the message treatment is not completed
                 DeviceClient hubClient = (DeviceClient)userContext;
                 return MessageResponse.Abandoned;

@@ -7,7 +7,6 @@ namespace OpcPublisher
 {
     using static HubCommunication;
     using static IotHubCommunication;
-    using static OpcPublisher.Workarounds.TraceWorkaround;
     using static Program;
     using static PublisherNodeConfiguration;
 
@@ -67,33 +66,33 @@ namespace OpcPublisher
                 {
                     await Task.Delay((int)_diagnosticsInterval * 1000, ct);
 
-                    Trace("==========================================================================");
-                    Trace($"OpcPublisher status @ {System.DateTime.UtcNow} (started @ {PublisherStartTime})");
-                    Trace("---------------------------------");
-                    Trace($"OPC sessions: {NumberOfOpcSessions}");
-                    Trace($"connected OPC sessions: {NumberOfConnectedOpcSessions}");
-                    Trace($"connected OPC subscriptions: {NumberOfConnectedOpcSubscriptions}");
-                    Trace($"OPC monitored items: {NumberOfMonitoredItems}");
-                    Trace("---------------------------------");
-                    Trace($"monitored items queue bounded capacity: {MonitoredItemsQueueCapacity}");
-                    Trace($"monitored items queue current items: {MonitoredItemsQueueCount}");
-                    Trace($"monitored item notifications enqueued: {EnqueueCount}");
-                    Trace($"monitored item notifications enqueue failure: {EnqueueFailureCount}");
-                    Trace($"monitored item notifications dequeued: {DequeueCount}");
-                    Trace("---------------------------------");
-                    Trace($"messages sent to IoTHub: {SentMessages}");
-                    Trace($"last successful msg sent @: {SentLastTime}");
-                    Trace($"bytes sent to IoTHub: {SentBytes}");
-                    Trace($"avg msg size: {SentBytes / (SentMessages == 0 ? 1 : SentMessages)}");
-                    Trace($"msg send failures: {FailedMessages}");
-                    Trace($"messages too large to sent to IoTHub: {TooLargeCount}");
-                    Trace($"times we missed send interval: {MissedSendIntervalCount}");
-                    Trace("---------------------------------");
-                    Trace($"current working set in MB: {Process.GetCurrentProcess().WorkingSet64 / (1024 * 1024)}");
-                    Trace($"--si setting: {DefaultSendIntervalSeconds}");
-                    Trace($"--ms setting: {HubMessageSize}");
-                    Trace($"--ih setting: {HubProtocol}");
-                    Trace("==========================================================================");
+                    Logger.Information("==========================================================================");
+                    Logger.Information($"OpcPublisher status @ {System.DateTime.UtcNow} (started @ {PublisherStartTime})");
+                    Logger.Information("---------------------------------");
+                    Logger.Information($"OPC sessions: {NumberOfOpcSessions}");
+                    Logger.Information($"connected OPC sessions: {NumberOfConnectedOpcSessions}");
+                    Logger.Information($"connected OPC subscriptions: {NumberOfConnectedOpcSubscriptions}");
+                    Logger.Information($"OPC monitored items: {NumberOfMonitoredItems}");
+                    Logger.Information("---------------------------------");
+                    Logger.Information($"monitored items queue bounded capacity: {MonitoredItemsQueueCapacity}");
+                    Logger.Information($"monitored items queue current items: {MonitoredItemsQueueCount}");
+                    Logger.Information($"monitored item notifications enqueued: {EnqueueCount}");
+                    Logger.Information($"monitored item notifications enqueue failure: {EnqueueFailureCount}");
+                    Logger.Information($"monitored item notifications dequeued: {DequeueCount}");
+                    Logger.Information("---------------------------------");
+                    Logger.Information($"messages sent to IoTHub: {SentMessages}");
+                    Logger.Information($"last successful msg sent @: {SentLastTime}");
+                    Logger.Information($"bytes sent to IoTHub: {SentBytes}");
+                    Logger.Information($"avg msg size: {SentBytes / (SentMessages == 0 ? 1 : SentMessages)}");
+                    Logger.Information($"msg send failures: {FailedMessages}");
+                    Logger.Information($"messages too large to sent to IoTHub: {TooLargeCount}");
+                    Logger.Information($"times we missed send interval: {MissedSendIntervalCount}");
+                    Logger.Information("---------------------------------");
+                    Logger.Information($"current working set in MB: {Process.GetCurrentProcess().WorkingSet64 / (1024 * 1024)}");
+                    Logger.Information($"--si setting: {DefaultSendIntervalSeconds}");
+                    Logger.Information($"--ms setting: {HubMessageSize}");
+                    Logger.Information($"--ih setting: {HubProtocol}");
+                    Logger.Information("==========================================================================");
                 }
                 catch
                 {

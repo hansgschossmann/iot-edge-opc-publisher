@@ -12,8 +12,8 @@ namespace OpcPublisher
     using System.Linq;
     using System.Threading;
     using static OpcMonitoredItem;
-    using static OpcPublisher.Workarounds.TraceWorkaround;
     using static OpcStackConfiguration;
+    using static Program;
 
     public static class PublisherNodeConfiguration
     {
@@ -148,15 +148,15 @@ namespace OpcPublisher
                 await PublisherNodeConfigurationSemaphore.WaitAsync();
                 if (!string.IsNullOrEmpty(Environment.GetEnvironmentVariable("_GW_PNFP")))
                 {
-                    Trace("Publishing node configuration file path read from environment.");
+                    Logger.Information("Publishing node configuration file path read from environment.");
                     _publisherNodeConfigurationFilename = Environment.GetEnvironmentVariable("_GW_PNFP");
                 }
-                Trace($"The name of the configuration file for published nodes is: {_publisherNodeConfigurationFilename}");
+                Logger.Information($"The name of the configuration file for published nodes is: {_publisherNodeConfigurationFilename}");
 
                 // if the file exists, read it, if not just continue 
                 if (File.Exists(_publisherNodeConfigurationFilename))
                 {
-                    Trace($"Attemtping to load node configuration from: {_publisherNodeConfigurationFilename}");
+                    Logger.Information($"Attemtping to load node configuration from: {_publisherNodeConfigurationFilename}");
                     try
                     {
                         await PublisherNodeConfigurationFileSemaphore.WaitAsync();
@@ -169,7 +169,7 @@ namespace OpcPublisher
 
                     if (_configurationFileEntries != null)
                     {
-                        Trace($"Loaded {_configurationFileEntries.Count} config file entry/entries.");
+                        Logger.Information($"Loaded {_configurationFileEntries.Count} config file entry/entries.");
                         foreach (var publisherConfigFileEntry in _configurationFileEntries)
                         {
                             if (publisherConfigFileEntry.NodeId == null)
@@ -186,7 +186,7 @@ namespace OpcPublisher
                                 // NodeId (ns=) format node configuration syntax using default sampling and publishing interval.
                                 _nodePublishingConfiguration.Add(new NodePublishingConfiguration(publisherConfigFileEntry.NodeId, publisherConfigFileEntry.EndpointUri, publisherConfigFileEntry.UseSecurity, OpcSamplingInterval, OpcPublishingInterval));
                                 // give user a warning that the syntax is obsolete
-                                Trace($"Please update the syntax of the configuration file and use ExpandedNodeId instead of NodeId property name for node with identifier '{publisherConfigFileEntry.NodeId.ToString()}' on EndpointUrl '{publisherConfigFileEntry.EndpointUri.AbsoluteUri}'.");
+                                Logger.Information($"Please update the syntax of the configuration file and use ExpandedNodeId instead of NodeId property name for node with identifier '{publisherConfigFileEntry.NodeId.ToString()}' on EndpointUrl '{publisherConfigFileEntry.EndpointUri.AbsoluteUri}'.");
 
                             }
                         }
@@ -194,20 +194,19 @@ namespace OpcPublisher
                 }
                 else
                 {
-                    Trace($"The node configuration file '{_publisherNodeConfigurationFilename}' does not exist. Starting up and wait for remote configuration requests.");
+                    Logger.Information($"The node configuration file '{_publisherNodeConfigurationFilename}' does not exist. Starting up and wait for remote configuration requests.");
                 }
             }
             catch (Exception e)
             {
-                Trace(e, "Loading of the node configuration file failed. Does the file exist and has correct syntax?");
-                Trace("exiting...");
+                Logger.Fatal(e, "Loading of the node configuration file failed. Does the file exist and has correct syntax? Exiting...");
                 return false;
             }
             finally
             {
                 PublisherNodeConfigurationSemaphore.Release();
             }
-            Trace($"There are {_nodePublishingConfiguration.Count.ToString()} nodes to publish.");
+            Logger.Information($"There are {_nodePublishingConfiguration.Count.ToString()} nodes to publish.");
             return true;
         }
 
@@ -274,8 +273,7 @@ namespace OpcPublisher
             }
             catch (Exception e)
             {
-                Trace(e, "Creation of the internal OPC data managment structures failed.");
-                Trace("exiting...");
+                Logger.Fatal(e, "Creation of the internal OPC data managment structures failed. Exiting...");
                 return false;
             }
             finally
@@ -386,7 +384,7 @@ namespace OpcPublisher
             }
             catch (Exception e)
             {
-                Trace(e, "Creation of configuration file entries failed.");
+                Logger.Error(e, "Creation of configuration file entries failed.");
             }
             finally
             {
@@ -418,7 +416,7 @@ namespace OpcPublisher
             }
             catch (Exception e)
             {
-                Trace(e, "Update of node configuration file failed.");
+                Logger.Error(e, "Update of node configuration file failed.");
             }
         }
 

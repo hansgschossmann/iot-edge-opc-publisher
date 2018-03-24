@@ -7,7 +7,7 @@ namespace OpcPublisher
 {
     using System.Threading.Tasks;
     using static Opc.Ua.CertificateStoreType;
-    using static OpcPublisher.Workarounds.TraceWorkaround;
+    using static Program;
 
     public class OpcStackConfiguration
     {
@@ -17,12 +17,6 @@ namespace OpcPublisher
         {
             get => _applicationName;
             set => _applicationName = value;
-        }
-
-        public static string LogFileName
-        {
-            get => _logFileName;
-            set => _logFileName = value;
         }
 
         public static ushort PublisherServerPort
@@ -49,7 +43,6 @@ namespace OpcPublisher
             set => _trustMyself = value;
         }
 
-        // Enable Utils.TraceMasks.OperationDetail to get output for IoTHub telemetry operations. Current: 0x287 (647), with OperationDetail: 0x2C7 (711)
         public static int OpcStackTraceMask
         {
             get => _opcStackTraceMask;
@@ -170,6 +163,13 @@ namespace OpcPublisher
             set => _ldsRegistrationInterval = value;
         }
 
+        public static int OpcTraceToLoggerVerbose = 0;
+        public static int OpcTraceToLoggerDebug = 0;
+        public static int OpcTraceToLoggerInformation = 0;
+        public static int OpcTraceToLoggerWarning = 0;
+        public static int OpcTraceToLoggerError = 0;
+        public static int OpcTraceToLoggerFatal = 0;
+
         /// <summary>
         /// Configures all OPC stack settings
         /// </summary>
@@ -199,16 +199,16 @@ namespace OpcPublisher
             _configuration.SecurityConfiguration.ApplicationCertificate.StoreType = _opcOwnCertStoreType;
             _configuration.SecurityConfiguration.ApplicationCertificate.StorePath = _opcOwnCertStorePath;
             _configuration.SecurityConfiguration.ApplicationCertificate.SubjectName = _configuration.ApplicationName;
-            Trace($"Application Certificate store type is: {_configuration.SecurityConfiguration.ApplicationCertificate.StoreType}");
-            Trace($"Application Certificate store path is: {_configuration.SecurityConfiguration.ApplicationCertificate.StorePath}");
-            Trace($"Application Certificate subject name is: {_configuration.SecurityConfiguration.ApplicationCertificate.SubjectName}");
+            Logger.Information($"Application Certificate store type is: {_configuration.SecurityConfiguration.ApplicationCertificate.StoreType}");
+            Logger.Information($"Application Certificate store path is: {_configuration.SecurityConfiguration.ApplicationCertificate.StorePath}");
+            Logger.Information($"Application Certificate subject name is: {_configuration.SecurityConfiguration.ApplicationCertificate.SubjectName}");
 
             // Use existing certificate, if it is there.
             X509Certificate2 certificate = await _configuration.SecurityConfiguration.ApplicationCertificate.Find(true);
             if (certificate == null)
             {
-                Trace($"No existing Application certificate found. Create a self-signed Application certificate valid from yesterday for {CertificateFactory.defaultLifeTime} months,");
-                Trace($"with a {CertificateFactory.defaultKeySize} bit key and {CertificateFactory.defaultHashSize} bit hash.");
+                Logger.Information($"No existing Application certificate found. Create a self-signed Application certificate valid from yesterday for {CertificateFactory.defaultLifeTime} months,");
+                Logger.Information($"with a {CertificateFactory.defaultKeySize} bit key and {CertificateFactory.defaultHashSize} bit hash.");
                 certificate = CertificateFactory.CreateCertificate(
                     _configuration.SecurityConfiguration.ApplicationCertificate.StoreType,
                     _configuration.SecurityConfiguration.ApplicationCertificate.StorePath,
@@ -229,17 +229,17 @@ namespace OpcPublisher
             }
             else
             {
-                Trace("Application certificate found in Application Certificate Store");
+                Logger.Information("Application certificate found in Application Certificate Store");
             }
             _configuration.ApplicationUri = Utils.GetApplicationUriFromCertificate(certificate);
-            Trace($"Application certificate is for Application URI '{_configuration.ApplicationUri}', Application '{_configuration.ApplicationName} and has Subject '{_configuration.ApplicationName}'");
+            Logger.Information($"Application certificate is for Application URI '{_configuration.ApplicationUri}', Application '{_configuration.ApplicationName} and has Subject '{_configuration.ApplicationName}'");
 
             // TrustedIssuerCertificates
             _configuration.SecurityConfiguration.TrustedIssuerCertificates = new CertificateTrustList();
             _configuration.SecurityConfiguration.TrustedIssuerCertificates.StoreType = _opcIssuerCertStoreType;
             _configuration.SecurityConfiguration.TrustedIssuerCertificates.StorePath = _opcIssuerCertStorePath;
-            Trace($"Trusted Issuer store type is: {_configuration.SecurityConfiguration.TrustedIssuerCertificates.StoreType}");
-            Trace($"Trusted Issuer Certificate store path is: {_configuration.SecurityConfiguration.TrustedIssuerCertificates.StorePath}");
+            Logger.Information($"Trusted Issuer store type is: {_configuration.SecurityConfiguration.TrustedIssuerCertificates.StoreType}");
+            Logger.Information($"Trusted Issuer Certificate store path is: {_configuration.SecurityConfiguration.TrustedIssuerCertificates.StorePath}");
 
             // TrustedPeerCertificates
             _configuration.SecurityConfiguration.TrustedPeerCertificates = new CertificateTrustList();
@@ -258,15 +258,15 @@ namespace OpcPublisher
             {
                 _configuration.SecurityConfiguration.TrustedPeerCertificates.StorePath = _opcTrustedCertStorePath;
             }
-            Trace($"Trusted Peer Certificate store type is: {_configuration.SecurityConfiguration.TrustedPeerCertificates.StoreType}");
-            Trace($"Trusted Peer Certificate store path is: {_configuration.SecurityConfiguration.TrustedPeerCertificates.StorePath}");
+            Logger.Information($"Trusted Peer Certificate store type is: {_configuration.SecurityConfiguration.TrustedPeerCertificates.StoreType}");
+            Logger.Information($"Trusted Peer Certificate store path is: {_configuration.SecurityConfiguration.TrustedPeerCertificates.StorePath}");
 
             // RejectedCertificateStore
             _configuration.SecurityConfiguration.RejectedCertificateStore = new CertificateTrustList();
             _configuration.SecurityConfiguration.RejectedCertificateStore.StoreType = _opcRejectedCertStoreType;
             _configuration.SecurityConfiguration.RejectedCertificateStore.StorePath = _opcRejectedCertStorePath;
-            Trace($"Rejected certificate store type is: {_configuration.SecurityConfiguration.RejectedCertificateStore.StoreType}");
-            Trace($"Rejected Certificate store path is: {_configuration.SecurityConfiguration.RejectedCertificateStore.StorePath}");
+            Logger.Information($"Rejected certificate store type is: {_configuration.SecurityConfiguration.RejectedCertificateStore.StoreType}");
+            Logger.Information($"Rejected Certificate store path is: {_configuration.SecurityConfiguration.RejectedCertificateStore.StorePath}");
 
             // AutoAcceptUntrustedCertificates
             // This is a security risk and should be set to true only for debugging purposes.
@@ -275,12 +275,12 @@ namespace OpcPublisher
             // RejectSHA1SignedCertificates
             // We allow SHA1 certificates for now as many OPC Servers still use them
             _configuration.SecurityConfiguration.RejectSHA1SignedCertificates = false;
-            Trace($"Rejection of SHA1 signed certificates is {(_configuration.SecurityConfiguration.RejectSHA1SignedCertificates ? "enabled" : "disabled")}");
+            Logger.Information($"Rejection of SHA1 signed certificates is {(_configuration.SecurityConfiguration.RejectSHA1SignedCertificates ? "enabled" : "disabled")}");
 
             // MinimunCertificatesKeySize
             // We allow a minimum key size of 1024 bit, as many OPC UA servers still use them
             _configuration.SecurityConfiguration.MinimumCertificateKeySize = 1024;
-            Trace($"Minimum certificate key size set to {_configuration.SecurityConfiguration.MinimumCertificateKeySize}");
+            Logger.Information($"Minimum certificate key size set to {_configuration.SecurityConfiguration.MinimumCertificateKeySize}");
 
             // We make the default reference stack behavior configurable to put our own certificate into the trusted peer store.
             if (_trustMyself)
@@ -291,13 +291,13 @@ namespace OpcPublisher
                     ICertificateStore store = _configuration.SecurityConfiguration.TrustedPeerCertificates.OpenStore();
                     if (store == null)
                     {
-                        Trace($"Can not open trusted peer store. StorePath={_configuration.SecurityConfiguration.TrustedPeerCertificates.StorePath}");
+                        Logger.Information($"Can not open trusted peer store. StorePath={_configuration.SecurityConfiguration.TrustedPeerCertificates.StorePath}");
                     }
                     else
                     {
                         try
                         {
-                            Trace($"Adding publisher certificate to trusted peer store. StorePath={_configuration.SecurityConfiguration.TrustedPeerCertificates.StorePath}");
+                            Logger.Information($"Adding publisher certificate to trusted peer store. StorePath={_configuration.SecurityConfiguration.TrustedPeerCertificates.StorePath}");
                             X509Certificate2 publicKey = new X509Certificate2(certificate.RawData);
                             await store.Add(publicKey);
                         }
@@ -309,12 +309,12 @@ namespace OpcPublisher
                 }
                 catch (Exception e)
                 {
-                    Trace(e, $"Can not add publisher certificate to trusted peer store. StorePath={_configuration.SecurityConfiguration.TrustedPeerCertificates.StorePath}");
+                    Logger.Error(e, $"Can not add publisher certificate to trusted peer store. StorePath={_configuration.SecurityConfiguration.TrustedPeerCertificates.StorePath}");
                 }
             }
             else
             {
-                Trace("Publisher certificate is not added to trusted peer store.");
+                Logger.Information("Publisher certificate is not added to trusted peer store.");
             }
 
 
@@ -325,7 +325,7 @@ namespace OpcPublisher
             _configuration.TransportQuotas = new TransportQuotas();
             // the OperationTimeout should be twice the minimum value for PublishingInterval * KeepAliveCount, so set to 120s
             _configuration.TransportQuotas.OperationTimeout = _opcOperationTimeout;
-            Trace($"OperationTimeout set to {_configuration.TransportQuotas.OperationTimeout}");
+            Logger.Information($"OperationTimeout set to {_configuration.TransportQuotas.OperationTimeout}");
 
 
             //
@@ -341,7 +341,7 @@ namespace OpcPublisher
             }
             foreach (var endpoint in _configuration.ServerConfiguration.BaseAddresses)
             {
-                Trace($"Publisher server base address: {endpoint}");
+                Logger.Information($"Publisher server base address: {endpoint}");
             }
 
             // SecurityPolicies
@@ -352,11 +352,11 @@ namespace OpcPublisher
                 SecurityPolicyUri = SecurityPolicies.Basic256Sha256
             };
             _configuration.ServerConfiguration.SecurityPolicies.Add(newPolicy);
-            Trace($"Security policy {newPolicy.SecurityPolicyUri} with mode {newPolicy.SecurityMode} added");
+            Logger.Information($"Security policy {newPolicy.SecurityPolicyUri} with mode {newPolicy.SecurityMode} added");
 
             // MaxRegistrationInterval
             _configuration.ServerConfiguration.MaxRegistrationInterval = _ldsRegistrationInterval;
-            Trace($"LDS(-ME) registration intervall set to {_ldsRegistrationInterval} ms (0 means no registration)");
+            Logger.Information($"LDS(-ME) registration intervall set to {_ldsRegistrationInterval} ms (0 means no registration)");
 
             //
             // TraceConfiguration
@@ -390,15 +390,66 @@ namespace OpcPublisher
 
             // Apply the settings
             _configuration.TraceConfiguration.ApplySettings();
-            Trace($"Current directory is: {System.IO.Directory.GetCurrentDirectory()}");
-            Trace($"Log file is: {Utils.GetAbsoluteFilePath(_configuration.TraceConfiguration.OutputFilePath, true, false, false, true)}");
-            Trace($"opcstacktracemask set to: 0x{_opcStackTraceMask:X} ({_opcStackTraceMask})");
+            Utils.Tracing.TraceEventHandler += new EventHandler<TraceEventArgs>(LoggerOpcUaTraceHandler);
+            Logger.Information($"opcstacktracemask set to: 0x{_opcStackTraceMask:X}");
 
             // add default client configuration
             _configuration.ClientConfiguration = new ClientConfiguration();
 
             // validate the configuration now
             await _configuration.Validate(_configuration.ApplicationType);
+        }
+
+        /// <summary>
+        /// Event handler to log OPC UA stack trace messages into own logger.
+        /// </summary>
+        private static void LoggerOpcUaTraceHandler(object sender, TraceEventArgs e)
+        {
+            // return fast if no trace needed
+            if ((e.TraceMask & _opcStackTraceMask) == 0)
+            {
+                return;
+            }
+
+            // e.Exception and e.Message are always null
+
+            // format the trace message
+            string message = string.Empty;
+            message = string.Format(e.Format, e.Arguments).Trim();
+            message = "OPC: " + message;
+
+            // map logging level
+            if ((e.TraceMask & OpcTraceToLoggerVerbose) != 0)
+            {
+                Logger.Verbose(message);
+                return;
+            }
+            if ((e.TraceMask & OpcTraceToLoggerDebug) != 0)
+            {
+                Logger.Debug(message);
+                return;
+            }
+            if ((e.TraceMask & OpcTraceToLoggerInformation) != 0)
+            {
+                Logger.Information(message);
+                return;
+            }
+            if ((e.TraceMask & OpcTraceToLoggerWarning) != 0)
+            {
+                Logger.Warning(message);
+                return;
+            }
+            if ((e.TraceMask & OpcTraceToLoggerError) != 0)
+            {
+                Logger.Error(message);
+                return;
+            }
+            if ((e.TraceMask & OpcTraceToLoggerFatal) != 0)
+            {
+                Logger.Fatal(message);
+                return;
+            }
+            return;
         }
 
         private static string _applicationName = "publisher";

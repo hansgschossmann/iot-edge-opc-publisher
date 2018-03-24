@@ -11,12 +11,14 @@ namespace OpcPublisher
 {
     using Opc.Ua;
     using Opc.Ua.Server;
+    using Serilog;
+    using System.IO;
+    using System.Text;
     using System.Text.RegularExpressions;
     using static Diagnostics;
     using static HubCommunication;
     using static IotHubCommunication;
     using static Opc.Ua.CertificateStoreType;
-    using static OpcPublisher.Workarounds.TraceWorkaround;
     using static OpcSession;
     using static OpcStackConfiguration;
     using static PublisherNodeConfiguration;
@@ -33,6 +35,8 @@ namespace OpcPublisher
         public static uint PublisherShutdownWaitPeriod => _publisherShutdownWaitPeriod;
 
         public static DateTime PublisherStartTime = DateTime.UtcNow;
+
+        public static Serilog.Core.Logger Logger = null;
 
         /// <summary>
         /// Synchronous main method of the app.
@@ -121,11 +125,12 @@ namespace OpcPublisher
                                 }
                             }
                         },
-                        { "di|diagnosticsinterval=", $"shows publisher diagnostic info at the specified interval in seconds. 0 disables diagnostic output.\nDefault: {DiagnosticsInterval}", (uint u) => DiagnosticsInterval = u },
+                        { "di|diagnosticsinterval=", $"shows publisher diagnostic info at the specified interval in seconds (need log level info). 0 disables diagnostic output.\nDefault: {DiagnosticsInterval}", (uint u) => DiagnosticsInterval = u },
 
-                        { "vc|verboseconsole=", $"the output of publisher is shown on the console.\nDefault: {VerboseConsole}", (bool b) => VerboseConsole = b },
+                        { "vc|verboseconsole=", $"ignored, only supported for backward comaptibility.", b => {}},
 
-                        { "ns|noshutdown=", $"publisher can not be stopped by pressing a key on the console, but will run forever.\nDefault: {_noShutdown}", (bool b) => _noShutdown = b },
+                        { "ns|noshutdown=", $"same as runforever.\nDefault: {_noShutdown}", (bool b) => _noShutdown = b },
+                        { "rf|runforwver", $"publisher can not be stopped by pressing a key on the console, but will run forever.\nDefault: {_noShutdown}", b => _noShutdown = b != null },
                     
                         // IoTHub specific options
                         { "ih|iothubprotocol=", $"{(IsIotEdgeModule ? "not supported when running as IoTEdge module (Mqtt_Tcp_Only is enforced)\n" : $"the protocol to use for communication with Azure IoTHub (allowed values: {string.Join(", ", Enum.GetNames(IotHubProtocol.GetType()))}).\nDefault: {Enum.GetName(IotHubProtocol.GetType(), IotHubProtocol)}")}",
@@ -174,7 +179,19 @@ namespace OpcPublisher
                         },
 
                         // opc server configuration options
-                        { "lf|logfile=", $"the filename of the logfile to use.\nDefault: './Logs/<applicationname>.log.txt'", (string l) => LogFileName = l },
+                        { "lf|logfile=", $"the filename of the logfile to use.\nDefault: './Logs/<applicationname>.log.txt'", (string l) => _logFileName = l },
+                        { "ll|loglevel=", $"the loglevel to use (allowed: fatal, error, warn, info, debug, verbose).\nDefault: info", (string l) => {
+                                List<string> logLevels = new List<string> {"fatal", "error", "warn", "info", "debug", "verbose"};
+                                if (logLevels.Contains(l.ToLowerInvariant()))
+                                {
+                                    _logLevel = l.ToLowerInvariant();
+                                }
+                                else
+                                {
+                                    throw new Mono.Options.OptionException("The loglevel must be one of: fatal, error, warn, info, debug, verbose", "loglevel");
+                                }
+                            }
+                        },
                         { "pn|portnum=", $"the server port of the publisher OPC server endpoint.\nDefault: {PublisherServerPort}", (ushort p) => PublisherServerPort = p },
                         { "pa|path=", $"the enpoint URL path part of the publisher OPC server endpoint.\nDefault: '{PublisherServerPath}'", (string a) => PublisherServerPath = a },
                         { "lr|ldsreginterval=", $"the LDS(-ME) registration interval in ms. If 0, then the registration is disabled.\nDefault: {LdsRegistrationInterval}", (int i) => {
@@ -258,32 +275,22 @@ namespace OpcPublisher
                                 }
                             }
                         },
-                        { "st|opcstacktracemask=", $"the trace mask for the OPC stack. See github OPC .NET stack for definitions.\nTo enable IoTHub telemetry tracing set it to 711.\nDefault: {OpcStackTraceMask:X}  ({OpcStackTraceMask})", (int i) => {
-                                if (i >= 0)
-                                {
-                                    OpcStackTraceMask = i;
-                                }
-                                else
-                                {
-                                    throw new OptionException("The OPC stack trace mask must be larger or equal 0.", "opcstacktracemask");
-                                }
-                            }
-                        },
-                        { "as|autotrustservercerts=", $"the publisher trusts all servers it is establishing a connection to.\nDefault: {OpcPublisherAutoTrustServerCerts}", (bool b) => OpcPublisherAutoTrustServerCerts = b },
-                        { "aa|autoaccept", $"same as autotrustservercerts\nDefault: {OpcPublisherAutoTrustServerCerts}", b => OpcPublisherAutoTrustServerCerts = b != null },
+                        { "st|opcstacktracemask=", $"ignored, only supported for backward comaptibility.", i => {}},
+
+                        { "as|autotrustservercerts=", $"same as autoaccept.\nDefault: {OpcPublisherAutoTrustServerCerts}", (bool b) => OpcPublisherAutoTrustServerCerts = b },
+                        { "aa|autoaccept", $"the publisher trusts all servers it is establishing a connection to.\nDefault: {OpcPublisherAutoTrustServerCerts}", b => OpcPublisherAutoTrustServerCerts = b != null },
 
                         // trust own public cert option
-                        { "tm|trustmyself=", $"the publisher certificate is put into the trusted certificate store automatically.\nDefault: {TrustMyself}", (bool b) => TrustMyself = b  },
+                        { "tm|trustmyself=", $"same as trustowncert.\nDefault: {TrustMyself}", (bool b) => TrustMyself = b  },
                         { "to|trustowncert", $"the publisher certificate is put into the trusted certificate store automatically.\nDefault: {TrustMyself}", t => TrustMyself = t != null  },
 
-                        // read the display name of the nodes to publish from the server and publish them instead of the node id
-                        { "fd|fetchdisplayname=", $"enable to read the display name of a published node from the server. this will increase the runtime.\nDefault: {FetchOpcNodeDisplayName}", (bool b) => FetchOpcNodeDisplayName = b },
+                        { "fd|fetchdisplayname=", $"ignored, only supported for backward compatibility",  b => {}},
 
                         // own cert store options
                         { "at|appcertstoretype=", $"the own application cert store type. \n(allowed values: Directory, X509Store)\nDefault: '{OpcOwnCertStoreType}'", (string s) => {
-                                if (s.Equals(X509Store, StringComparison.OrdinalIgnoreCase) || s.Equals(Directory, StringComparison.OrdinalIgnoreCase))
+                                if (s.Equals(X509Store, StringComparison.OrdinalIgnoreCase) || s.Equals(CertificateStoreType.Directory, StringComparison.OrdinalIgnoreCase))
                                 {
-                                    OpcOwnCertStoreType = s.Equals(X509Store, StringComparison.OrdinalIgnoreCase) ? X509Store : Directory;
+                                    OpcOwnCertStoreType = s.Equals(X509Store, StringComparison.OrdinalIgnoreCase) ? X509Store : CertificateStoreType.Directory;
                                     OpcOwnCertStorePath = s.Equals(X509Store, StringComparison.OrdinalIgnoreCase) ? OpcOwnCertX509StorePathDefault : OpcOwnCertDirectoryStorePathDefault;
                                 }
                                 else
@@ -300,9 +307,9 @@ namespace OpcPublisher
                         // trusted cert store options
                         {
                         "tt|trustedcertstoretype=", $"the trusted cert store type. \n(allowed values: Directory, X509Store)\nDefault: {OpcTrustedCertStoreType}", (string s) => {
-                                if (s.Equals(X509Store, StringComparison.OrdinalIgnoreCase) || s.Equals(Directory, StringComparison.OrdinalIgnoreCase))
+                                if (s.Equals(X509Store, StringComparison.OrdinalIgnoreCase) || s.Equals(CertificateStoreType.Directory, StringComparison.OrdinalIgnoreCase))
                                 {
-                                    OpcTrustedCertStoreType = s.Equals(X509Store, StringComparison.OrdinalIgnoreCase) ? X509Store : Directory;
+                                    OpcTrustedCertStoreType = s.Equals(X509Store, StringComparison.OrdinalIgnoreCase) ? X509Store : CertificateStoreType.Directory;
                                     OpcTrustedCertStorePath = s.Equals(X509Store, StringComparison.OrdinalIgnoreCase) ? OpcTrustedCertX509StorePathDefault : OpcTrustedCertDirectoryStorePathDefault;
                                 }
                                 else
@@ -318,9 +325,9 @@ namespace OpcPublisher
 
                         // rejected cert store options
                         { "rt|rejectedcertstoretype=", $"the rejected cert store type. \n(allowed values: Directory, X509Store)\nDefault: {OpcRejectedCertStoreType}", (string s) => {
-                                if (s.Equals(X509Store, StringComparison.OrdinalIgnoreCase) || s.Equals(Directory, StringComparison.OrdinalIgnoreCase))
+                                if (s.Equals(X509Store, StringComparison.OrdinalIgnoreCase) || s.Equals(CertificateStoreType.Directory, StringComparison.OrdinalIgnoreCase))
                                 {
-                                    OpcRejectedCertStoreType = s.Equals(X509Store, StringComparison.OrdinalIgnoreCase) ? X509Store : Directory;
+                                    OpcRejectedCertStoreType = s.Equals(X509Store, StringComparison.OrdinalIgnoreCase) ? X509Store : CertificateStoreType.Directory;
                                     OpcRejectedCertStorePath = s.Equals(X509Store, StringComparison.OrdinalIgnoreCase) ? OpcRejectedCertX509StorePathDefault : OpcRejectedCertDirectoryStorePathDefault;
                                 }
                                 else
@@ -337,9 +344,9 @@ namespace OpcPublisher
                         // issuer cert store options
                         {
                         "it|issuercertstoretype=", $"the trusted issuer cert store type. \n(allowed values: Directory, X509Store)\nDefault: {OpcIssuerCertStoreType}", (string s) => {
-                                if (s.Equals(X509Store, StringComparison.OrdinalIgnoreCase) || s.Equals(Directory, StringComparison.OrdinalIgnoreCase))
+                                if (s.Equals(X509Store, StringComparison.OrdinalIgnoreCase) || s.Equals(CertificateStoreType.Directory, StringComparison.OrdinalIgnoreCase))
                                 {
-                                    OpcIssuerCertStoreType = s.Equals(X509Store, StringComparison.OrdinalIgnoreCase) ? X509Store : Directory;
+                                    OpcIssuerCertStoreType = s.Equals(X509Store, StringComparison.OrdinalIgnoreCase) ? X509Store : CertificateStoreType.Directory;
                                     OpcIssuerCertStorePath = s.Equals(X509Store, StringComparison.OrdinalIgnoreCase) ? OpcIssuerCertX509StorePathDefault : OpcIssuerCertDirectoryStorePathDefault;
                                 }
                                 else
@@ -355,9 +362,9 @@ namespace OpcPublisher
 
                         // device connection string cert store options
                         { "dt|devicecertstoretype=", $"the iothub device cert store type. \n(allowed values: Directory, X509Store)\nDefault: {IotDeviceCertStoreType}", (string s) => {
-                                if (s.Equals(X509Store, StringComparison.OrdinalIgnoreCase) || s.Equals(Directory, StringComparison.OrdinalIgnoreCase))
+                                if (s.Equals(X509Store, StringComparison.OrdinalIgnoreCase) || s.Equals(CertificateStoreType.Directory, StringComparison.OrdinalIgnoreCase))
                                 {
-                                    IotDeviceCertStoreType = s.Equals(X509Store, StringComparison.OrdinalIgnoreCase) ? X509Store : Directory;
+                                    IotDeviceCertStoreType = s.Equals(X509Store, StringComparison.OrdinalIgnoreCase) ? X509Store : CertificateStoreType.Directory;
                                     IotDeviceCertStorePath = s.Equals(X509Store, StringComparison.OrdinalIgnoreCase) ? IotDeviceCertX509StorePathDefault : IotDeviceCertDirectoryStorePathDefault;
                                 }
                                 else
@@ -385,12 +392,19 @@ namespace OpcPublisher
                 }
                 catch (OptionException e)
                 {
+                    // initialize logging
+                    InitLogging();
+
                     // show message
-                    WriteLine($"Error: {e.Message}");
+                    Logger.Fatal(e, "Error in command line options");
+
                     // show usage
                     Usage(options);
                     return;
                 }
+
+                // initialize logging
+                InitLogging();
 
                 // Validate and parse extra arguments.
                 const int APP_NAME_INDEX = 0;
@@ -436,52 +450,51 @@ namespace OpcPublisher
                     {
                         return;
                     }
-                    WriteLine("Installation completed. Exiting...");
+                    Logger.Information("Installation completed. Exiting...");
                     return;
                 }
 
                 // start operation
-                WriteLine("Publisher is starting up...");
+                Logger.Information("Publisher is starting up...");
 
                 // init OPC configuration and tracing
                 OpcStackConfiguration opcStackConfiguration = new OpcStackConfiguration();
                 await opcStackConfiguration.ConfigureAsync();
-                _opcTraceInitialized = true;_opcTraceInitialized = true;
 
                 // log shopfloor domain setting
                 if (string.IsNullOrEmpty(PublisherDomain))
                 {
-                    Trace("There is no domain configured.");
+                    Logger.Information("There is no domain configured.");
                 }
                 else
                 {
-                    Trace($"Publisher is in domain '{PublisherDomain}'.");
+                    Logger.Information($"Publisher is in domain '{PublisherDomain}'.");
                 }
 
                 // Set certificate validator.
                 if (OpcPublisherAutoTrustServerCerts)
                 {
-                    Trace("Publisher configured to auto trust server certificates of the servers it is connecting to.");
+                    Logger.Information("Publisher configured to auto trust server certificates of the servers it is connecting to.");
                     PublisherOpcApplicationConfiguration.CertificateValidator.CertificateValidation += new CertificateValidationEventHandler(CertificateValidator_AutoTrustServerCerts);
                 }
                 else
                 {
-                    Trace("Publisher configured to not auto trust server certificates. When connecting to servers, you need to manually copy the rejected server certs to the trusted store to trust them.");
+                    Logger.Information("Publisher configured to not auto trust server certificates. When connecting to servers, you need to manually copy the rejected server certs to the trusted store to trust them.");
                     PublisherOpcApplicationConfiguration.CertificateValidator.CertificateValidation += new CertificateValidationEventHandler(CertificateValidator_Default);
                 }
 
                 // start our server interface
                 try
                 {
-                    Trace($"Starting server on endpoint {PublisherOpcApplicationConfiguration.ServerConfiguration.BaseAddresses[0].ToString()} ...");
+                    Logger.Information($"Starting server on endpoint {PublisherOpcApplicationConfiguration.ServerConfiguration.BaseAddresses[0].ToString()} ...");
                     _publisherServer = new PublisherServer();
                     _publisherServer.Start(PublisherOpcApplicationConfiguration);
-                    Trace("Server started.");
+                    Logger.Information("Server started.");
                 }
                 catch (Exception e)
                 {
-                    Trace(e, "Failed to start Publisher OPC UA server.");
-                    Trace("exiting...");
+                    Logger.Fatal(e, "Failed to start Publisher OPC UA server.");
+                    Logger.Fatal("exiting...");
                     return;
                 }
 
@@ -536,17 +549,17 @@ namespace OpcPublisher
                 Diagnostics.Init();
 
                 // stop on user request
-                WriteLine("");
-                WriteLine("");
+                Logger.Information("");
+                Logger.Information("");
                 if (_noShutdown)
                 {
                     // wait forever if asked to do so
-                    WriteLine("Publisher is running infinite...");
+                    Logger.Information("Publisher is running infinite...");
                     await Task.Delay(Timeout.Infinite);
                 }
                 else
                 {
-                    WriteLine("Publisher is running. Press any key to quit.");
+                    Logger.Information("Publisher is running. Press any key to quit.");
                     try
                     {
                         ReadKey(true);
@@ -554,14 +567,14 @@ namespace OpcPublisher
                     catch
                     {
                         // wait forever if there is no console
-                        WriteLine("There is no console. Publisher is running infinite...");
+                        Logger.Information("There is no console. Publisher is running infinite...");
                         await Task.Delay(Timeout.Infinite);
                     }
                 }
-                WriteLine("");
-                WriteLine("");
+                Logger.Information("");
+                Logger.Information("");
                 ShutdownTokenSource.Cancel();
-                WriteLine("Publisher is shutting down...");
+                Logger.Information("Publisher is shutting down...");
 
                 // Wait for session connector completion
                 await sessionConnectorAsync;
@@ -586,30 +599,14 @@ namespace OpcPublisher
             }
             catch (Exception e)
             {
-                if (_opcTraceInitialized)
+                Logger.Fatal(e, e.StackTrace);
+                e = e.InnerException ?? null;
+                while (e != null)
                 {
-                    Trace(e, e.StackTrace);
+                    Logger.Fatal(e, e.StackTrace);
                     e = e.InnerException ?? null;
-                    while (e != null)
-                    {
-                        Trace(e, e.StackTrace);
-                        e = e.InnerException ?? null;
-                    }
-                    Trace("Publisher exiting... ");
                 }
-                else
-                {
-                    WriteLine($"{DateTime.Now.ToString()}: {e.Message.ToString()}");
-                    WriteLine($"{DateTime.Now.ToString()}: {e.StackTrace}");
-                    e = e.InnerException ?? null;
-                    while (e != null)
-                    {
-                        WriteLine($"{DateTime.Now.ToString()}: {e.Message.ToString()}");
-                        WriteLine($"{DateTime.Now.ToString()}: {e.StackTrace}");
-                        e = e.InnerException ?? null;
-                    }
-                    WriteLine($"{DateTime.Now.ToString()}: Publisher exiting...");
-                }
+                Logger.Fatal("Publisher exiting... ");
             }
         }
 
@@ -637,7 +634,7 @@ namespace OpcPublisher
                 }
                 catch (Exception e)
                 {
-                    Trace(e, $"Failed to connect and monitor a disconnected server. {(e.InnerException != null ? e.InnerException.Message : "")}");
+                    Logger.Error(e, $"Failed to connect and monitor a disconnected server. {(e.InnerException != null ? e.InnerException.Message : "")}");
                 }
                 try
                 {
@@ -676,7 +673,7 @@ namespace OpcPublisher
             }
             catch (Exception e)
             {
-                Trace(e, "Failed to shutdown all sessions.");
+                Logger.Fatal(e, "Failed to shutdown all sessions.");
             }
 
             // Wait and continue after a while.
@@ -690,10 +687,10 @@ namespace OpcPublisher
                 }
                 if (maxTries-- == 0)
                 {
-                    Trace($"There are still {sessionCount} sessions alive. Ignore and continue shutdown.");
+                    Logger.Information($"There are still {sessionCount} sessions alive. Ignore and continue shutdown.");
                     return;
                 }
-                Trace($"Publisher is shutting down. Wait {_publisherSessionConnectWaitSec} seconds, since there are stil {sessionCount} sessions alive...");
+                Logger.Information($"Publisher is shutting down. Wait {_publisherSessionConnectWaitSec} seconds, since there are stil {sessionCount} sessions alive...");
                 await Task.Delay(_publisherSessionConnectWaitSec * 1000);
             }
         }
@@ -705,30 +702,37 @@ namespace OpcPublisher
         {
 
             // show usage
-            WriteLine();
-            WriteLine("Usage: {0}.exe <applicationname> [<iothubconnectionstring>] [<options>]", Assembly.GetEntryAssembly().GetName().Name);
-            WriteLine();
-            WriteLine("OPC Edge Publisher to subscribe to configured OPC UA servers and send telemetry to Azure IoTHub.");
-            WriteLine("To exit the application, just press ENTER while it is running.");
-            WriteLine();
-            WriteLine("applicationname: the OPC UA application name to use, required");
-            WriteLine("                 The application name is also used to register the publisher under this name in the");
-            WriteLine("                 IoTHub device registry.");
-            WriteLine();
-            WriteLine("iothubconnectionstring: the IoTHub owner connectionstring, optional");
-            WriteLine();
-            WriteLine("There are a couple of environment variables which can be used to control the application:");
-            WriteLine("_HUB_CS: sets the IoTHub owner connectionstring");
-            WriteLine("_GW_LOGP: sets the filename of the log file to use");
-            WriteLine("_TPC_SP: sets the path to store certificates of trusted stations");
-            WriteLine("_GW_PNFP: sets the filename of the publishing configuration file");
-            WriteLine();
-            WriteLine("Command line arguments overrule environment variable settings.");
-            WriteLine();
+            Logger.Information("");
+            Logger.Information("Usage: {0}.exe <applicationname> [<iothubconnectionstring>] [<options>]", Assembly.GetEntryAssembly().GetName().Name);
+            Logger.Information("");
+            Logger.Information("OPC Edge Publisher to subscribe to configured OPC UA servers and send telemetry to Azure IoTHub.");
+            Logger.Information("To exit the application, just press ENTER while it is running.");
+            Logger.Information("");
+            Logger.Information("applicationname: the OPC UA application name to use, required");
+            Logger.Information("                 The application name is also used to register the publisher under this name in the");
+            Logger.Information("                 IoTHub device registry.");
+            Logger.Information("");
+            Logger.Information("iothubconnectionstring: the IoTHub owner connectionstring, optional");
+            Logger.Information("");
+            Logger.Information("There are a couple of environment variables which can be used to control the application:");
+            Logger.Information("_HUB_CS: sets the IoTHub owner connectionstring");
+            Logger.Information("_GW_LOGP: sets the filename of the log file to use");
+            Logger.Information("_TPC_SP: sets the path to store certificates of trusted stations");
+            Logger.Information("_GW_PNFP: sets the filename of the publishing configuration file");
+            Logger.Information("");
+            Logger.Information("Command line arguments overrule environment variable settings.");
+            Logger.Information("");
 
             // output the options
-            WriteLine("Options:");
-            options.WriteOptionDescriptions(Console.Out);
+            Logger.Information("Options:");
+            StringBuilder stringBuilder = new StringBuilder();
+            StringWriter stringWriter = new StringWriter(stringBuilder);
+            options.WriteOptionDescriptions(stringWriter);
+            string[] helpLines = stringBuilder.ToString().Split("\r\n");
+            foreach (var line in helpLines)
+            {
+                Logger.Information(line);
+            }
         }
 
         /// <summary>
@@ -738,11 +742,11 @@ namespace OpcPublisher
         {
             if (e.Error.StatusCode == StatusCodes.BadCertificateUntrusted)
             {
-                Trace($"The Publisher does not trust the server with the certificate subject '{e.Certificate.Subject}'.");
-                Trace("If you want to trust this certificate, please copy it from the directory:");
-                Trace($"{PublisherOpcApplicationConfiguration.SecurityConfiguration.RejectedCertificateStore.StorePath}/certs");
-                Trace("to the directory:");
-                Trace($"{PublisherOpcApplicationConfiguration.SecurityConfiguration.TrustedPeerCertificates.StorePath}/certs");
+                Logger.Information($"The Publisher does not trust the server with the certificate subject '{e.Certificate.Subject}'.");
+                Logger.Information("If you want to trust this certificate, please copy it from the directory:");
+                Logger.Information($"{PublisherOpcApplicationConfiguration.SecurityConfiguration.RejectedCertificateStore.StorePath}/certs");
+                Logger.Information("to the directory:");
+                Logger.Information($"{PublisherOpcApplicationConfiguration.SecurityConfiguration.TrustedPeerCertificates.StorePath}/certs");
             }
         }
 
@@ -753,7 +757,7 @@ namespace OpcPublisher
         {
             if (e.Error.StatusCode == StatusCodes.BadCertificateUntrusted)
             {
-                Trace($"Certificate '{e.Certificate.Subject}' will be trusted, since the autotrustservercerts options was specified.");
+                Logger.Information($"Certificate '{e.Certificate.Subject}' will be trusted, since the autotrustservercerts options was specified.");
                 e.Accept = true;
                 return;
             }
@@ -780,15 +784,76 @@ namespace OpcPublisher
                     item += String.Format(":{0,20}", session.Identity.DisplayName);
                 }
                 item += String.Format(":{0}", session.Id);
-                Trace(item);
+                Logger.Information(item);
             }
+        }
+
+        /// <summary>
+        /// Initialize logging.
+        /// </summary>
+        private static void InitLogging()
+        {
+            LoggerConfiguration loggerConfiguration = new LoggerConfiguration();
+
+            // set the log level
+            switch (_logLevel)
+            {
+                case "fatal":
+                    loggerConfiguration.MinimumLevel.Fatal();
+                    OpcTraceToLoggerFatal = 0;
+                    break;
+                case "error":
+                    loggerConfiguration.MinimumLevel.Error();
+                    OpcStackTraceMask = OpcTraceToLoggerError = Utils.TraceMasks.Error;
+                    break;
+                case "warn":
+                    loggerConfiguration.MinimumLevel.Warning();
+                    OpcTraceToLoggerWarning = 0;
+                    break;
+                case "info":
+                    loggerConfiguration.MinimumLevel.Information();
+                    OpcStackTraceMask = OpcTraceToLoggerInformation = 0;
+                    break;
+                case "debug":
+                    loggerConfiguration.MinimumLevel.Debug();
+                    OpcStackTraceMask = OpcTraceToLoggerDebug = Utils.TraceMasks.ServiceDetail | Utils.TraceMasks.OperationDetail | Utils.TraceMasks.Service |
+                        Utils.TraceMasks.StartStop | Utils.TraceMasks.ExternalSystem | Utils.TraceMasks.Security;
+                    break;
+                case "verbose":
+                    loggerConfiguration.MinimumLevel.Verbose();
+                    OpcStackTraceMask = OpcTraceToLoggerVerbose = Utils.TraceMasks.StackTrace | Utils.TraceMasks.Operation | Utils.TraceMasks.Information | Utils.TraceMasks.All;
+                    break;
+            }
+
+            // set logging sinks
+            loggerConfiguration.WriteTo.Console();
+
+            if (!string.IsNullOrEmpty(Environment.GetEnvironmentVariable("_GW_LOGP")))
+            {
+                _logFileName = Environment.GetEnvironmentVariable("_GW_LOGP");
+            }
+
+            if (!string.IsNullOrEmpty(_logFileName))
+            {
+                // configure rolling file sink
+                const int MAX_LOGFILE_SIZE = 1024 * 1024;
+                const int MAX_RETAINED_LOGFILES = 2;
+                loggerConfiguration.WriteTo.File(_logFileName, fileSizeLimitBytes: MAX_LOGFILE_SIZE, rollOnFileSizeLimit: true, retainedFileCountLimit: MAX_RETAINED_LOGFILES);
+            }
+
+            Logger = loggerConfiguration.CreateLogger();
+            Logger.Information($"Current directory is: {System.IO.Directory.GetCurrentDirectory()}");
+            Logger.Information($"Log file is: {Utils.GetAbsoluteFilePath(_logFileName, true, false, false, true)}");
+            Logger.Information($"Log level is: {_logLevel}");
+            return;
         }
 
         private static uint _publisherShutdownWaitPeriod = 10;
         private static PublisherServer _publisherServer;
-        private static bool _opcTraceInitialized = false;
         private static int _publisherSessionConnectWaitSec = 10;
         private static bool _noShutdown = false;
         private static bool _installOnly = false;
+        private static string _logFileName = $"{Utils.GetHostName()}-publisher.log";
+        private static string _logLevel = "info";
     }
 }

@@ -14,7 +14,7 @@ namespace OpcPublisher
     using System.IO;
     using static OpcPublisher.OpcMonitoredItem;
     using static OpcPublisher.PublisherTelemetryConfiguration;
-    using static OpcPublisher.Workarounds.TraceWorkaround;
+    using static Program;
 
     /// <summary>
     /// Class to handle all IoTHub/EdgeHub communication.
@@ -125,7 +125,7 @@ namespace OpcPublisher
             }
             catch (Exception e)
             {
-                Trace(e, "Failure initializing hub communication processing.");
+                Logger.Error(e, "Failure initializing hub communication processing.");
                 return false;
             }
         }
@@ -141,73 +141,75 @@ namespace OpcPublisher
                 Microsoft.Azure.Devices.Client.Message message = await _hubClient.ReceiveAsync(TimeSpan.FromSeconds(60));
                 if (message != null)
                 {
-                    Trace($"Got message from IoTHub: {message.ToString()}");
+                    Logger.Debug($"Got message from IoTHub: {message.ToString()}");
                     // todo - process message
                     await _hubClient.CompleteAsync(message);
                 }
             }
         }
 
-        private async Task C2dAnnounceAsync()
-        {
-            DateTime startTime = DateTime.UtcNow;
-            DateTime lastAnnounce = new DateTime(0);
-            bool announce = true;
-            TimeSpan shortAnnouncementPeriod = new TimeSpan(0, 0, 30);
-            TimeSpan regularAnnouncementPeriod = new TimeSpan(1, 0, 0);
-            TimeSpan startAnnouncementPhase = new TimeSpan(1, 0, 0);
+        // todo remove
+        //private async Task C2dAnnounceAsync()
+        //{
+        //    DateTime startTime = DateTime.UtcNow;
+        //    DateTime lastAnnounce = new DateTime(0);
+        //    bool announce = true;
+        //    TimeSpan shortAnnouncementPeriod = new TimeSpan(0, 0, 30);
+        //    TimeSpan regularAnnouncementPeriod = new TimeSpan(1, 0, 0);
+        //    TimeSpan startAnnouncementPhase = new TimeSpan(1, 0, 0);
 
-            // in the first hour we announce each 5 minutes, later each hour
-            while (true)
-            {
-                if (_shutdownToken.IsCancellationRequested)
-                {
-                    break;
-                }
-                if (announce)
-                {
-                    var announceMessage = new Microsoft.Azure.Devices.Client.Message(Encoding.ASCII.GetBytes($"'ApplicationUri': '{ApplicationUriNameDefault}'"));
-                    await _hubClient.SendEventAsync(announceMessage);
-                    if (GetType().IsInstanceOfType(typeof(IotEdgeHubCommunication)))
-                    {
-                        await _hubClient.SendEventAsync("OpcAnnouncements", announceMessage);
-                    }
-                    lastAnnounce = DateTime.UtcNow;
-                }
-                await Task.Delay(shortAnnouncementPeriod);
-                announce = false;
-                if (DateTime.UtcNow - startTime < startAnnouncementPhase)
-                {
-                    if (DateTime.UtcNow - lastAnnounce > shortAnnouncementPeriod)
-                    {
-                        announce = true;
-                    }
-                }
-                else
-                {
-                    if (DateTime.UtcNow - lastAnnounce > regularAnnouncementPeriod)
-                    {
-                        announce = true;
-                    }
-                }
-            }
-        }
+        //    // in the first hour we announce each 5 minutes, later each hour
+        //    while (true)
+        //    {
+        //        if (_shutdownToken.IsCancellationRequested)
+        //        {
+        //            break;
+        //        }
+        //        if (announce)
+        //        {
+        //            var announceMessage = new Microsoft.Azure.Devices.Client.Message(Encoding.ASCII.GetBytes($"'ApplicationUri': '{ApplicationUriNameDefault}'"));
+        //            await _hubClient.SendEventAsync(announceMessage);
+        //            if (GetType().IsInstanceOfType(typeof(IotEdgeHubCommunication)))
+        //            {
+        //                await _hubClient.SendEventAsync("OpcAnnouncements", announceMessage);
+        //            }
+        //            lastAnnounce = DateTime.UtcNow;
+        //        }
+        //        await Task.Delay(shortAnnouncementPeriod);
+        //        announce = false;
+        //        if (DateTime.UtcNow - startTime < startAnnouncementPhase)
+        //        {
+        //            if (DateTime.UtcNow - lastAnnounce > shortAnnouncementPeriod)
+        //            {
+        //                announce = true;
+        //            }
+        //        }
+        //        else
+        //        {
+        //            if (DateTime.UtcNow - lastAnnounce > regularAnnouncementPeriod)
+        //            {
+        //                announce = true;
+        //            }
+        //        }
+        //    }
+        //}
 
         private void InitC2dMessaging()
         {
             // create a task to poll for messages
             Task.Run(async () => await C2dReceiveMessageHandlerAsync());
 
+            // todo remove
             // announce ourselve
-            Task.Run(async () => await C2dAnnounceAsync());
+            //Task.Run(async () => await C2dAnnounceAsync());
         }
 
         private Task DesiredPropertiesUpdate(TwinCollection desiredProperties, object userContext)
         {
             try
             {
-                Console.WriteLine("Desired property update:");
-                Console.WriteLine(JsonConvert.SerializeObject(desiredProperties));
+                Logger.Debug("Desired property update:");
+                Logger.Debug(JsonConvert.SerializeObject(desiredProperties));
 
                 // todo - add handling
             }
@@ -215,12 +217,12 @@ namespace OpcPublisher
             {
                 foreach (Exception ex in e.InnerExceptions)
                 {
-                    Trace(ex, "Error in desired property update.");
+                    Logger.Error(ex, "Error in desired property update.");
                 }
             }
             catch (Exception e)
             {
-                Trace(e, "Error in desired property update.");
+                Logger.Error(e, "Error in desired property update.");
             }
             return Task.CompletedTask;
         }
@@ -230,7 +232,7 @@ namespace OpcPublisher
         /// </summary>
         static void ConnectionStatusChange(ConnectionStatus status, ConnectionStatusChangeReason reason)
         {
-                Trace($"Connection status changed to '{status}', reason '{reason}'");
+                Logger.Information($"Connection status changed to '{status}', reason '{reason}'");
         }
 
         /// <summary>
@@ -241,7 +243,7 @@ namespace OpcPublisher
             MethodResponse response = new MethodResponse(0);
             try
             {
-                Trace("PublishNode method called.");
+                Logger.Debug("PublishNode method called.");
 
                 // todo - process publish request
 
@@ -252,7 +254,7 @@ namespace OpcPublisher
             {
                 foreach (Exception ex in e.InnerExceptions)
                 {
-                    Trace(ex, "Error in PublishNode method handler.");
+                    Logger.Error(ex, "Error in PublishNode method handler.");
                 }
                 // Indicate that the message treatment is not completed
                 DeviceClient hubClient = (DeviceClient)userContext;
@@ -260,7 +262,7 @@ namespace OpcPublisher
             }
             catch (Exception e)
             {
-                Trace(e, "Error in PublishNode method handler.");
+                Logger.Error(e, "Error in PublishNode method handler.");
                 // Indicate that the message treatment is not completed
                 DeviceClient hubClient = (DeviceClient)userContext;
                 return response;
@@ -276,7 +278,7 @@ namespace OpcPublisher
             MethodResponse response = new MethodResponse(0);
             try
             {
-                Trace("UnpublishNode method called.");
+                Logger.Debug("UnpublishNode method called.");
 
                 // todo - process unpublish request
 
@@ -287,7 +289,7 @@ namespace OpcPublisher
             {
                 foreach (Exception ex in e.InnerExceptions)
                 {
-                    Trace(ex, "Error in UnpublishNode method handler.");
+                    Logger.Error(ex, "Error in UnpublishNode method handler.");
                 }
                 // Indicate that the message treatment is not completed
                 DeviceClient hubClient = (DeviceClient)userContext;
@@ -295,7 +297,7 @@ namespace OpcPublisher
             }
             catch (Exception e)
             {
-                Trace(e, "Error in UnpublishNode method handler.");
+                Logger.Error(e, "Error in UnpublishNode method handler.");
                 // Indicate that the message treatment is not completed
                 DeviceClient hubClient = (DeviceClient)userContext;
                 return response;
@@ -311,7 +313,7 @@ namespace OpcPublisher
             MethodResponse response = new MethodResponse(0);
             try
             {
-                Trace("GetListOfPublishedNodes method called.");
+                Logger.Debug("GetListOfPublishedNodes method called.");
 
                 // todo - process request
 
@@ -322,7 +324,7 @@ namespace OpcPublisher
             {
                 foreach (Exception ex in e.InnerExceptions)
                 {
-                    Trace(ex, "Error in GetListOfPublishedNodes method handler.");
+                    Logger.Error(ex, "Error in GetListOfPublishedNodes method handler.");
                 }
                 // Indicate that the message treatment is not completed
                 DeviceClient hubClient = (DeviceClient)userContext;
@@ -330,7 +332,7 @@ namespace OpcPublisher
             }
             catch (Exception e)
             {
-                Trace(e, "Error in GetListOfPublishedNodes method handler.");
+                Logger.Error(e, "Error in GetListOfPublishedNodes method handler.");
                 // Indicate that the message treatment is not completed
                 DeviceClient hubClient = (DeviceClient)userContext;
                 return response;
@@ -345,7 +347,7 @@ namespace OpcPublisher
             try
             {
                 // show config
-                Trace($"Message processing and hub communication configured with a send interval of {_defaultSendIntervalSeconds} sec and a message buffer size of {_hubMessageSize} bytes.");
+                Logger.Information($"Message processing and hub communication configured with a send interval of {_defaultSendIntervalSeconds} sec and a message buffer size of {_hubMessageSize} bytes.");
 
                 // create the queue for monitored items
                 _monitoredItemsDataQueue = new BlockingCollection<MessageData>(_monitoredItemsQueueCapacity);
@@ -353,13 +355,13 @@ namespace OpcPublisher
                 // start up task to send telemetry to IoTHub
                 _monitoredItemsProcessorTask = null;
 
-                Trace("Creating task process and batch monitored item data updates...");
+                Logger.Information("Creating task process and batch monitored item data updates...");
                 _monitoredItemsProcessorTask = Task.Run(async () => await MonitoredItemsProcessorAsync(_shutdownToken), _shutdownToken);
                 return true;
             }
             catch (Exception e)
             {
-                Trace(e, "Failure initializing message processing.");
+                Logger.Error(e, "Failure initializing message processing.");
                 return false;
             }
         }
@@ -385,7 +387,7 @@ namespace OpcPublisher
             }
             catch (Exception e)
             {
-                Trace(e, "Failure while shutting down hub messaging.");
+                Logger.Error(e, "Failure while shutting down hub messaging.");
             }
         }
 
@@ -401,7 +403,7 @@ namespace OpcPublisher
                 Interlocked.Increment(ref _enqueueFailureCount);
                 if (_enqueueFailureCount % 10000 == 0)
                 {
-                    Trace(Utils.TraceMasks.Error, $"The internal monitored item message queue is above its capacity of {_monitoredItemsDataQueue.BoundedCapacity}. We have already lost {_enqueueFailureCount} monitored item notifications:(");
+                    Logger.Information($"The internal monitored item message queue is above its capacity of {_monitoredItemsDataQueue.BoundedCapacity}. We have already lost {_enqueueFailureCount} monitored item notifications:(");
                 }
             }
         }
@@ -529,7 +531,7 @@ namespace OpcPublisher
             }
             catch (Exception e)
             {
-                Trace(e, "Generation of JSON message failed.");
+                Logger.Error(e, "Generation of JSON message failed.");
             }
             return string.Empty;
         }
@@ -599,8 +601,8 @@ namespace OpcPublisher
                             // sanity check that the user has set a large enough messages size
                             if ((_hubMessageSize > 0 && jsonMessageSize > _hubMessageSize ) || (_hubMessageSize == 0 && jsonMessageSize > hubMessageBufferSize))
                             {
-                                Trace(Utils.TraceMasks.Error, $"There is a telemetry message (size: {jsonMessageSize}), which will not fit into an hub message (max size: {hubMessageBufferSize}].");
-                                Trace(Utils.TraceMasks.Error, $"Please check your hub message size settings. The telemetry message will be discarded silently. Sorry:(");
+                                Logger.Error($"There is a telemetry message (size: {jsonMessageSize}), which will not fit into an hub message (max size: {hubMessageBufferSize}].");
+                                Logger.Error($"Please check your hub message size settings. The telemetry message will be discarded silently. Sorry:(");
                                 _tooLargeCount++;
                                 continue;
                             }
@@ -615,7 +617,7 @@ namespace OpcPublisher
                                     // add the message and a comma to the buffer
                                     hubMessage.Write(Encoding.UTF8.GetBytes(jsonMessage.ToString()), 0, jsonMessageSize);
                                     hubMessage.Write(Encoding.UTF8.GetBytes(","), 0, 1);
-                                    Trace(Utils.TraceMasks.OperationDetail, $"Added new message with size {jsonMessageSize} to hub message (size is now {(hubMessage.Position - 1)}).");
+                                    Logger.Verbose($"Added new message with size {jsonMessageSize} to hub message (size is now {(hubMessage.Position - 1)}).");
                                     continue;
                                 }
                                 else
@@ -629,7 +631,7 @@ namespace OpcPublisher
                             // if we got no message, we either reached the interval or we are in shutdown and have processed all messages
                             if (ct.IsCancellationRequested)
                             {
-                                Trace($"Cancellation requested.");
+                                Logger.Information($"Cancellation requested.");
                                 _monitoredItemsDataQueue.CompleteAdding();
                                 _monitoredItemsDataQueue.Dispose();
                                 break;
@@ -673,7 +675,7 @@ namespace OpcPublisher
                                     await _hubClient.SendEventAsync(encodedhubMessage);
                                     _sentMessages++;
                                     _sentLastTime = DateTime.UtcNow;
-                                    Trace(Utils.TraceMasks.OperationDetail, $"Sending {encodedhubMessage.BodyStream.Length} bytes to hub.");
+                                    Logger.Verbose($"Sending {encodedhubMessage.BodyStream.Length} bytes to hub.");
                                 }
                                 catch
                                 {
@@ -695,12 +697,12 @@ namespace OpcPublisher
                             }
                             else
                             {
-                                Trace("No hub client available. Dropping messages...");
+                                Logger.Information("No hub client available. Dropping messages...");
                             }
                         }
                         catch (Exception e)
                         {
-                            Trace(e, "Exception while sending message to hub. Dropping message...");
+                            Logger.Error(e, "Exception while sending message to hub. Dropping message...");
                         }
                     }
                 }
@@ -709,7 +711,7 @@ namespace OpcPublisher
                     if (!(e is OperationCanceledException))
                     {
 
-                        Trace(e, "Error while processing monitored item messages.");
+                        Logger.Error(e, "Error while processing monitored item messages.");
                     }
                 }
             }
@@ -728,7 +730,7 @@ namespace OpcPublisher
             }
             catch (Exception e)
             {
-                Trace(e, "Error in GetTwinProperty.)");
+                Logger.Error(e, "Error in GetTwinProperty.)");
                 return null;
             }
         }
