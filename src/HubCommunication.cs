@@ -102,11 +102,14 @@ namespace OpcPublisher
                 _hubClient.SetConnectionStatusChangesHandler(ConnectionStatusChange);
 
                 // open connection
+                Logger.Verbose($"Open hub communication");
                 await _hubClient.OpenAsync();
 
                 // twin properties and methods are not supported for HTTP
                 if (!IsHttp1Transport())
                 {
+                    Logger.Verbose($"Register desired properties and method callbacks");
+
                     // register property update handler
                     await _hubClient.SetDesiredPropertyUpdateCallbackAsync(DesiredPropertiesUpdate, null);
 
@@ -119,8 +122,10 @@ namespace OpcPublisher
                 }
 
                 // C2D messages are supported for all protocols, HTTP requires polling
+                Logger.Verbose($"Init C2D messaging");
                 InitC2dMessaging();
 
+                Logger.Verbose($"Init D2C message processing");
                 return await InitMessageProcessingAsync();
             }
             catch (Exception e)

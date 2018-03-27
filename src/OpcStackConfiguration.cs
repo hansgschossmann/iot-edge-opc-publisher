@@ -361,34 +361,11 @@ namespace OpcPublisher
             //
             // TraceConfiguration
             //
+            //
+            // TraceConfiguration
+            //
             _configuration.TraceConfiguration = new TraceConfiguration();
-            // Due to a bug in a stack we need to do console output ourselve.
-            Utils.SetTraceOutput(Utils.TraceOutput.FileOnly);
-
-            // OutputFilePath
-            if (string.IsNullOrEmpty(_logFileName))
-            {
-                if (!string.IsNullOrEmpty(Environment.GetEnvironmentVariable("_GW_LOGP")))
-                {
-                    _configuration.TraceConfiguration.OutputFilePath = Environment.GetEnvironmentVariable("_GW_LOGP");
-                }
-                else
-                {
-                    _configuration.TraceConfiguration.OutputFilePath = "./Logs/" + _configuration.ApplicationName + ".log.txt";
-                }
-            }
-            else
-            {
-                _configuration.TraceConfiguration.OutputFilePath = _logFileName;
-            }
-
-            // DeleteOnLoad
-            _configuration.TraceConfiguration.DeleteOnLoad = false;
-
-            // TraceMasks
             _configuration.TraceConfiguration.TraceMasks = _opcStackTraceMask;
-
-            // Apply the settings
             _configuration.TraceConfiguration.ApplySettings();
             Utils.Tracing.TraceEventHandler += new EventHandler<TraceEventArgs>(LoggerOpcUaTraceHandler);
             Logger.Information($"opcstacktracemask set to: 0x{_opcStackTraceMask:X}");

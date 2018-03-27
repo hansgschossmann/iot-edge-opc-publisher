@@ -821,7 +821,7 @@ namespace OpcPublisher
                     break;
                 case "verbose":
                     loggerConfiguration.MinimumLevel.Verbose();
-                    OpcStackTraceMask = OpcTraceToLoggerVerbose = Utils.TraceMasks.StackTrace | Utils.TraceMasks.Operation | Utils.TraceMasks.Information | Utils.TraceMasks.All;
+                    OpcStackTraceMask = OpcTraceToLoggerVerbose = Utils.TraceMasks.All;
                     break;
             }
 
