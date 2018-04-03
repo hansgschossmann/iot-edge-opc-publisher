@@ -444,7 +444,7 @@ namespace OpcPublisher
 
             // set defaults for 'Flat' to be compatible with Connected factory
             _defaultEndpointTelemetryConfiguration.MonitoredItem.Flat = true;
-            _defaultEndpointTelemetryConfiguration.Value.Flat = false;
+            _defaultEndpointTelemetryConfiguration.Value.Flat = true;
 
             // 'Pattern' is set to null on creation which is whats default
         }
