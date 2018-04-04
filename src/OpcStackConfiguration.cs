@@ -430,7 +430,6 @@ namespace OpcPublisher
         }
 
         private static string _applicationName = "publisher";
-        private static string _logFileName;
         private static ushort _publisherServerPort = 62222;
         private static string _publisherServerPath = "/UA/Publisher";
         private static int _opcOperationTimeout = 120000;

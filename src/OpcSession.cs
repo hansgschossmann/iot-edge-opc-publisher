@@ -302,16 +302,16 @@ namespace OpcPublisher
                 // add message to fifo send queue
                 if (monitoredItem.Subscription == null)
                 {
-                    Logger.Verbose($"Subscription already removed. No more details available.");
+                    Logger.Debug($"Subscription already removed. No more details available.");
                 }
                 else
                 {
-                    Logger.Verbose($"Enqueue a new message from subscription {(monitoredItem.Subscription == null ? "removed" : monitoredItem.Subscription.Id.ToString())}");
-                    Logger.Verbose($" with publishing interval: {monitoredItem.Subscription.PublishingInterval} and sampling interval: {monitoredItem.SamplingInterval}):");
+                    Logger.Debug($"Enqueue a new message from subscription {(monitoredItem.Subscription == null ? "removed" : monitoredItem.Subscription.Id.ToString())}");
+                    Logger.Debug($" with publishing interval: {monitoredItem.Subscription.PublishingInterval} and sampling interval: {monitoredItem.SamplingInterval}):");
                 }
-                Logger.Verbose($"   EndpointUrl: {messageData.EndpointUrl}");
-                Logger.Verbose($"   DisplayName: {messageData.DisplayName}");
-                Logger.Verbose($"   Value: {messageData.Value}");
+                Logger.Debug($"   EndpointUrl: {messageData.EndpointUrl}");
+                Logger.Debug($"   DisplayName: {messageData.DisplayName}");
+                Logger.Debug($"   Value: {messageData.Value}");
                 HubCommunication.Enqueue(messageData);
             }
             catch (Exception e)

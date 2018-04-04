@@ -102,13 +102,13 @@ namespace OpcPublisher
                 _hubClient.SetConnectionStatusChangesHandler(ConnectionStatusChange);
 
                 // open connection
-                Logger.Verbose($"Open hub communication");
+                Logger.Debug($"Open hub communication");
                 await _hubClient.OpenAsync();
 
                 // twin properties and methods are not supported for HTTP
                 if (!IsHttp1Transport())
                 {
-                    Logger.Verbose($"Register desired properties and method callbacks");
+                    Logger.Debug($"Register desired properties and method callbacks");
 
                     // register property update handler
                     await _hubClient.SetDesiredPropertyUpdateCallbackAsync(DesiredPropertiesUpdate, null);
@@ -122,10 +122,10 @@ namespace OpcPublisher
                 }
 
                 // C2D messages are supported for all protocols, HTTP requires polling
-                Logger.Verbose($"Init C2D messaging");
+                Logger.Debug($"Init C2D messaging");
                 InitC2dMessaging();
 
-                Logger.Verbose($"Init D2C message processing");
+                Logger.Debug($"Init D2C message processing");
                 return await InitMessageProcessingAsync();
             }
             catch (Exception e)
@@ -622,7 +622,7 @@ namespace OpcPublisher
                                     // add the message and a comma to the buffer
                                     hubMessage.Write(Encoding.UTF8.GetBytes(jsonMessage.ToString()), 0, jsonMessageSize);
                                     hubMessage.Write(Encoding.UTF8.GetBytes(","), 0, 1);
-                                    Logger.Verbose($"Added new message with size {jsonMessageSize} to hub message (size is now {(hubMessage.Position - 1)}).");
+                                    Logger.Debug($"Added new message with size {jsonMessageSize} to hub message (size is now {(hubMessage.Position - 1)}).");
                                     continue;
                                 }
                                 else
@@ -680,7 +680,7 @@ namespace OpcPublisher
                                     await _hubClient.SendEventAsync(encodedhubMessage);
                                     _sentMessages++;
                                     _sentLastTime = DateTime.UtcNow;
-                                    Logger.Verbose($"Sending {encodedhubMessage.BodyStream.Length} bytes to hub.");
+                                    Logger.Debug($"Sending {encodedhubMessage.BodyStream.Length} bytes to hub.");
                                 }
                                 catch
                                 {
