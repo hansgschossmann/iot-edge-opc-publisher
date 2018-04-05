@@ -21,6 +21,18 @@ namespace OpcPublisher
     /// </summary>
     public class HubCommunication
     {
+        public class IotCentralMessage
+        {
+            public string Key;
+            public string Value;
+
+            public IotCentralMessage()
+            {
+                Key = null;
+                Value = null;
+            }
+        }
+
         public static long MonitoredItemsQueueCount => _monitoredItemsDataQueue.Count;
 
         public static long DequeueCount => _dequeueCount;
@@ -76,6 +88,13 @@ namespace OpcPublisher
 
         public static bool IsHttp1Transport() => (_transportType == Microsoft.Azure.Devices.Client.TransportType.Http1);
 
+        public static bool IotCentralMode
+        {
+            get => _iotCentralMode;
+            set => _iotCentralMode = value;
+        }
+
+
         /// <summary>
         /// Ctor for the class.
         /// </summary>
@@ -100,6 +119,9 @@ namespace OpcPublisher
 
                 // register connection status change handler
                 _hubClient.SetConnectionStatusChangesHandler(ConnectionStatusChange);
+
+                // show IoTCentral mode
+                Logger.Information($"IoTCentral mode: {_iotCentralMode}");
 
                 // open connection
                 Logger.Debug($"Open hub communication");
@@ -418,7 +440,6 @@ namespace OpcPublisher
         /// </summary>
         private async Task<string> CreateJsonMessageAsync(MessageData messageData)
         {
-            //Trace($"Message #{msgCounter++}");
             try
             {
                 // get telemetry configration
@@ -542,6 +563,33 @@ namespace OpcPublisher
         }
 
         /// <summary>
+        /// Creates a JSON message to be sent to IoTCentral.
+        /// </summary>
+        private async Task<string> CreateIotCentralJsonMessageAsync(MessageData messageData)
+        {
+            try
+            {
+                // build the JSON message for IoTCentral
+                StringBuilder _jsonStringBuilder = new StringBuilder();
+                StringWriter _jsonStringWriter = new StringWriter(_jsonStringBuilder);
+                using (JsonWriter _jsonWriter = new JsonTextWriter(_jsonStringWriter))
+                {
+                    await _jsonWriter.WriteStartObjectAsync();
+                    await _jsonWriter.WritePropertyNameAsync(messageData.DisplayName);
+                    await _jsonWriter.WriteValueAsync(messageData.Value);
+                    await _jsonWriter.WriteEndObjectAsync();
+                    await _jsonWriter.FlushAsync();
+                }
+                return _jsonStringBuilder.ToString();
+            }
+            catch (Exception e)
+            {
+                Logger.Error(e, "Generation of IoTCentral JSON message failed.");
+            }
+            return string.Empty;
+        }
+
+        /// <summary>
         /// Dequeue monitored item notification messages, batch them for send (if needed) and send them to IoTHub.
         /// </summary>
         protected async Task MonitoredItemsProcessorAsync(CancellationToken ct)
@@ -595,8 +643,16 @@ namespace OpcPublisher
                         // check if we got an item or if we hit the timeout or got canceled
                         if (gotItem)
                         {
-                            // create a JSON message from the messageData object
-                            jsonMessage = await CreateJsonMessageAsync(messageData);
+                            if (IotCentralMode)
+                            {
+                                // for IoTCentral we send simple key/value pairs. key is the DisplayName, value the value.
+                                jsonMessage = await CreateIotCentralJsonMessageAsync(messageData);
+                            }
+                            else
+                            {
+                                // create a JSON message from the messageData object
+                                jsonMessage = await CreateJsonMessageAsync(messageData);
+                            }
 
                             // todo - send the message to the output route in case we are on edge
 
@@ -759,5 +815,6 @@ namespace OpcPublisher
         private static DeviceClient _hubClient;
         private static TransportType _transportType;
         private static CancellationToken _shutdownToken;
+        private static bool _iotCentralMode = false;
     }
 }

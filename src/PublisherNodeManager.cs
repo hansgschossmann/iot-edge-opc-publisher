@@ -8,12 +8,10 @@ namespace OpcPublisher
 {
     using Newtonsoft.Json;
     using System.Linq;
-    using static IotHubCommunication;
     using static OpcPublisher.OpcMonitoredItem;
     using static OpcPublisher.Program;
     using static OpcStackConfiguration;
     using static PublisherNodeConfiguration;
-    using static Program;
 
 
     public class PublisherNodeManager : CustomNodeManager2

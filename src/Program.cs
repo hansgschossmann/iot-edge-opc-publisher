@@ -103,6 +103,7 @@ namespace OpcPublisher
                                 }
                             }
                          },
+                        { "ic|iotcentral", $"publisher will send OPC UA data in IoTCentral compatible format (DisplayName of a node is used as key, this key is the Field name in IoTCentral). you need to ensure that all DisplayName's are unique. (Auto enables fetch display name)\nDefault: {IotCentralMode}", b => IotCentralMode = FetchOpcNodeDisplayName = b != null },
                         { "sw|sessionconnectwait=", $"specify the wait time in seconds publisher is trying to connect to disconnected endpoints and starts monitoring unmonitored items\nMin: 10\nDefault: {_publisherSessionConnectWaitSec}", (int i) => {
                                 if (i > 10)
                                 {
@@ -283,8 +284,8 @@ namespace OpcPublisher
                         // trust own public cert option
                         { "tm|trustmyself=", $"same as trustowncert.\nDefault: {TrustMyself}", (bool b) => TrustMyself = b  },
                         { "to|trustowncert", $"the publisher certificate is put into the trusted certificate store automatically.\nDefault: {TrustMyself}", t => TrustMyself = t != null  },
-
-                        { "fd|fetchdisplayname=", $"ignored, only supported for backward compatibility",  b => {}},
+                        // read the display name of the nodes to publish from the server and publish them instead of the node id
+                        { "fd|fetchdisplayname", $"enable to read the display name of a published node from the server. this will increase the runtime.\nDefault: {FetchOpcNodeDisplayName}", b => FetchOpcNodeDisplayName = IotCentralMode ? true : b != null },
 
                         // own cert store options
                         { "at|appcertstoretype=", $"the own application cert store type. \n(allowed values: Directory, X509Store)\nDefault: '{OpcOwnCertStoreType}'", (string s) => {
@@ -457,6 +458,21 @@ namespace OpcPublisher
                 // start operation
                 Logger.Information("Publisher is starting up...");
 
+                // allow canceling the application
+                var quitEvent = new ManualResetEvent(false);
+                try
+                {
+                    Console.CancelKeyPress += (sender, eArgs) =>
+                    {
+                        quitEvent.Set();
+                        eArgs.Cancel = true;
+                        ShutdownTokenSource.Cancel();
+                    };
+                }
+                catch
+                {
+                }
+
                 // init OPC configuration and tracing
                 OpcStackConfiguration opcStackConfiguration = new OpcStackConfiguration();
                 await opcStackConfiguration.ConfigureAsync();
@@ -559,18 +575,12 @@ namespace OpcPublisher
                 }
                 else
                 {
-                    Logger.Information("Publisher is running. Press any key to quit.");
-                    try
-                    {
-                        ReadKey(true);
-                    }
-                    catch
-                    {
-                        // wait forever if there is no console
-                        Logger.Information("There is no console. Publisher is running infinite...");
-                        await Task.Delay(Timeout.Infinite);
-                    }
+                    Logger.Information("Publisher is running. Press CTRL-C to quit.");
+
+                    // wait for Ctrl-C
+                    quitEvent.WaitOne(Timeout.Infinite);
                 }
+
                 Logger.Information("");
                 Logger.Information("");
                 ShutdownTokenSource.Cancel();
@@ -816,7 +826,7 @@ namespace OpcPublisher
                     break;
                 case "debug":
                     loggerConfiguration.MinimumLevel.Debug();
-                    OpcStackTraceMask = OpcTraceToLoggerDebug = Utils.TraceMasks.StackTrace | Utils.TraceMasks.Operation | Utils.TraceMasks.Information |
+                    OpcStackTraceMask = OpcTraceToLoggerDebug = Utils.TraceMasks.StackTrace | Utils.TraceMasks.Operation |
                         Utils.TraceMasks.StartStop | Utils.TraceMasks.ExternalSystem | Utils.TraceMasks.Security;
                     break;
                 case "verbose":
