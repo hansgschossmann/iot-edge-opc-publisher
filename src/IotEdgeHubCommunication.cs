@@ -30,7 +30,7 @@ namespace OpcPublisher
         static void InstallEdgeHubCert()
         {
             string certPath = Environment.GetEnvironmentVariable("EdgeModuleCACertificateFile");
-            Logger.Information($"edgeModule certificate file is: ${certPath}");
+            Logger.Information($"edgeModule certificate file is: {certPath}");
             if (string.IsNullOrWhiteSpace(certPath))
             {
                 // We cannot proceed further without a proper cert file
