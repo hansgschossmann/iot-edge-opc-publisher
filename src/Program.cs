@@ -44,13 +44,13 @@ namespace OpcPublisher
         public static void Main(string[] args)
         {
             // todo remove
-            //bool waitHere = true;
-            //while (waitHere)
-            //{
-            //    int i = 0;
+            // bool waitHere = true;
+            // int i = 0;
+            // while (waitHere)
+            // {
             //    WriteLine($"forever loop (iteration {i++})");
-            //    Thread.Sleep(10000);
-            //}
+            //    Thread.Sleep(5000);
+            // }
             MainAsync(args).Wait();
         }
 
@@ -81,7 +81,7 @@ namespace OpcPublisher
                     }
                     if (originalArgs != null && originalArgs.Length == 1 && !string.IsNullOrEmpty(originalArgs[0]))
                     {
-                        args = originalArgs[0].Split(" ");
+                        args = originalArgs[0].Split(" ", StringSplitOptions.RemoveEmptyEntries);
                     }
                 }
 
