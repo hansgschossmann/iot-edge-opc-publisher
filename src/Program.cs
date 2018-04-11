@@ -43,21 +43,21 @@ namespace OpcPublisher
         /// </summary>
         public static void Main(string[] args)
         {
-            // todo remove
-            // bool waitHere = true;
-            // int i = 0;
-            // while (waitHere)
-            // {
+            // enable this to catch when running in IoTEdge
+            //bool waitHere = true;
+            //int i = 0;
+            //while (waitHere)
+            //{
             //    WriteLine($"forever loop (iteration {i++})");
             //    Thread.Sleep(5000);
-            // }
+            //}
             MainAsync(args).Wait();
         }
 
         /// <summary>
         /// Asynchronous part of the main method of the app.
         /// </summary>
-        public async static Task MainAsync(string[] originalArgs)
+        public async static Task MainAsync(string[] args)
         {
             try
             {
@@ -68,21 +68,10 @@ namespace OpcPublisher
 
                 // detect the runtime environment. either we run standalone (native or containerized) or as IoT Edge module (containerized)
                 // check if we have an environment variable containing an IoT Edge connectionstring, we run as IoT Edge module
-                string[] args = originalArgs;
                 if (!string.IsNullOrEmpty(Environment.GetEnvironmentVariable("EdgeHubConnectionString")))
                 {
                     WriteLine("IoTEdge detected.");
                     IsIotEdgeModule = true;
-
-                    // parse create options. we remove "dotnet" and the assembly name
-                    if (originalArgs.Length > 1)if (originalArgs.Length > 1)
-                    {
-                        WriteLine($"Only one create option argument is supported, but there were {originalArgs.Length} detected. Pls verify..");
-                    }
-                    if (originalArgs != null && originalArgs.Length == 1 && !string.IsNullOrEmpty(originalArgs[0]))
-                    {
-                        args = originalArgs[0].Split(" ", StringSplitOptions.RemoveEmptyEntries);
-                    }
                 }
 
                 // command line options
