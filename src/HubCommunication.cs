@@ -57,7 +57,7 @@ namespace OpcPublisher
             set => _hubMessageSize = value;
         }
 
-        public static Microsoft.Azure.Devices.Client.TransportType HubProtocol
+        public static TransportType HubProtocol
         {
             get => _hubProtocol;
             set => _hubProtocol = value;
@@ -86,7 +86,7 @@ namespace OpcPublisher
             get => _enqueueFailureCount;
         }
 
-        public static bool IsHttp1Transport() => (_transportType == Microsoft.Azure.Devices.Client.TransportType.Http1);
+        public static bool IsHttp1Transport() => (_transportType == TransportType.Http1);
 
         public static bool IotCentralMode
         {
@@ -106,7 +106,7 @@ namespace OpcPublisher
         /// <summary>
         /// Initializes message broker communication.
         /// </summary>
-        public async Task<bool> InitHubCommunicationAsync(DeviceClient hubClient, Microsoft.Azure.Devices.Client.TransportType transportType)
+        public async Task<bool> InitHubCommunicationAsync(DeviceClient hubClient, TransportType transportType)
         {
             try
             {
@@ -165,7 +165,7 @@ namespace OpcPublisher
                 {
                     break;
                 }
-                Microsoft.Azure.Devices.Client.Message message = await _hubClient.ReceiveAsync(TimeSpan.FromSeconds(60));
+                Message message = await _hubClient.ReceiveAsync(TimeSpan.FromSeconds(60));
                 if (message != null)
                 {
                     Logger.Debug($"Got message from IoTHub: {message.ToString()}");

@@ -46,7 +46,7 @@ namespace OpcPublisher
             X509Store store = new X509Store(StoreName.Root, StoreLocation.CurrentUser);
             store.Open(OpenFlags.ReadWrite);
             store.Add(new X509Certificate2(X509Certificate2.CreateFromCertFile(certPath)));
-            Logger.Information("Added IoT EdgeHub Cert: " + certPath);
+            Logger.Information($"Added IoT EdgeHub Cert (${certPath}) to X509 store.");
             store.Close();
         }
 
@@ -60,6 +60,7 @@ namespace OpcPublisher
             {
                 // read the EdgeHub connection string from the environment
                 string edgeHubConnectionString = Environment.GetEnvironmentVariable("EdgeHubConnectionString");
+                Logger.Information($"Using EdgeHubConnectionString '{edgeHubConnectionString}'.");
 
                 // we also need to initialize the cert verification, but it is not yet fully functional under Windows
                 // Cert verification is not yet fully functional when using Windows OS for the container
