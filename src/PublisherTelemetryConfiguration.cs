@@ -343,7 +343,6 @@ namespace OpcPublisher
             _defaultEndpointTelemetryConfiguration = null;
             _endpointTelemetryConfigurationCache = new Dictionary<string, EndpointTelemetryConfiguration>();
             _shutdownToken = shutdownToken;
-            _endpointTelemetrySemaphore = new SemaphoreSlim(1);
         }
 
         /// <summary>
@@ -356,8 +355,6 @@ namespace OpcPublisher
             _endpointTelemetryConfigurations = null;
             _defaultEndpointTelemetryConfiguration = null;
             _endpointTelemetryConfigurationCache = null;
-            _endpointTelemetrySemaphore.Dispose();
-            _endpointTelemetrySemaphore = null;
         }
 
 
@@ -366,21 +363,12 @@ namespace OpcPublisher
         /// </summary>
         public static EndpointTelemetryConfiguration GetEndpointTelemetryConfiguration(string endpointUrl)
         {
-            try
+            // lookup configuration in cache and return it or return default configuration
+            if (_endpointTelemetryConfigurationCache.ContainsKey(endpointUrl))
             {
-                _endpointTelemetrySemaphore.Wait(_shutdownToken);
-
-                // lookup configuration in cache and return it or return default configuration
-                if (_endpointTelemetryConfigurationCache.ContainsKey(endpointUrl))
-                {
-                    return _endpointTelemetryConfigurationCache[endpointUrl];
-                }
-                return _defaultEndpointTelemetryConfiguration;
+                return _endpointTelemetryConfigurationCache[endpointUrl];
             }
-            finally
-            {
-                _endpointTelemetrySemaphore.Release();
-            }
+            return _defaultEndpointTelemetryConfiguration;
         }
 
         /// <summary>
@@ -555,17 +543,8 @@ namespace OpcPublisher
                     // set defaults for unset values
                     UpdateEndpointTelemetryConfiguration(config);
 
-                    try
-                    {
-                        await _endpointTelemetrySemaphore.WaitAsync(_shutdownToken);
-
-                        // add the endpoint configuration to the lookup cache
-                        _endpointTelemetryConfigurationCache.Add(config.ForEndpointUrl, config);
-                    }
-                    finally
-                    {
-                        _endpointTelemetrySemaphore.Release();
-                    }
+                    // add the endpoint configuration to the lookup cache
+                    _endpointTelemetryConfigurationCache.Add(config.ForEndpointUrl, config);
                 }
             }
             catch (Exception e)
@@ -581,7 +560,6 @@ namespace OpcPublisher
         private static List<EndpointTelemetryConfiguration> _endpointTelemetryConfigurations;
         private static EndpointTelemetryConfiguration _defaultEndpointTelemetryConfiguration;
         private static Dictionary<string, EndpointTelemetryConfiguration> _endpointTelemetryConfigurationCache;
-        private static SemaphoreSlim _endpointTelemetrySemaphore = null;
         private static CancellationToken _shutdownToken;
     }
 }

@@ -169,7 +169,7 @@ namespace OpcPublisher
                         },
 
                         // opc server configuration options
-                        { "lf|logfile=", $"the filename of the logfile to use.\nDefault: './Logs/<applicationname>.log.txt'", (string l) => _logFileName = l },
+                        { "lf|logfile=", $"the filename of the logfile to use.\nDefault: './{_logFileName}'", (string l) => _logFileName = l },
                         { "ll|loglevel=", $"the loglevel to use (allowed: fatal, error, warn, info, debug, verbose).\nDefault: info", (string l) => {
                                 List<string> logLevels = new List<string> {"fatal", "error", "warn", "info", "debug", "verbose"};
                                 if (logLevels.Contains(l.ToLowerInvariant()))
@@ -267,7 +267,7 @@ namespace OpcPublisher
                         },
                         { "st|opcstacktracemask=", $"ignored, only supported for backward comaptibility.", i => {}},
 
-                        { "as|autotrustservercerts=", $"same as autoaccept.\nDefault: {OpcPublisherAutoTrustServerCerts}", (bool b) => OpcPublisherAutoTrustServerCerts = b },
+                        { "as|autotrustservercerts=", $"same as autoaccept, only supported for backward cmpatibility.\nDefault: {OpcPublisherAutoTrustServerCerts}", (bool b) => OpcPublisherAutoTrustServerCerts = b },
                         { "aa|autoaccept", $"the publisher trusts all servers it is establishing a connection to.\nDefault: {OpcPublisherAutoTrustServerCerts}", b => OpcPublisherAutoTrustServerCerts = b != null },
 
                         // trust own public cert option
@@ -842,7 +842,7 @@ namespace OpcPublisher
 
             Logger = loggerConfiguration.CreateLogger();
             Logger.Information($"Current directory is: {System.IO.Directory.GetCurrentDirectory()}");
-            Logger.Information($"Log file is: {Utils.GetAbsoluteFilePath(_logFileName, true, false, false, true)}");
+            Logger.Information($"Log file is: {_logFileName}");
             Logger.Information($"Log level is: {_logLevel}");
             return;
         }

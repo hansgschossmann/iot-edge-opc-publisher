@@ -15,6 +15,7 @@ namespace OpcPublisher
     using static Program;
     using static PublisherNodeConfiguration;
     using static HubCommunication;
+    using System.Diagnostics;
 
     /// <summary>
     /// Class to manage the OPC monitored items, which are the nodes we need to publish.
@@ -685,7 +686,6 @@ namespace OpcPublisher
 
                     // process all unmonitored items.
                     var unmonitoredItems = opcSubscription.OpcMonitoredItems.Where(i => (i.State == OpcMonitoredItemState.Unmonitored || i.State == OpcMonitoredItemState.UnmonitoredNamespaceUpdateRequested));
-
                     int additionalMonitoredItemsCount = 0;
                     int monitoredItemsCount = 0;
                     bool haveUnmonitoredItems = false;
@@ -695,6 +695,10 @@ namespace OpcPublisher
                         monitoredItemsCount = opcSubscription.OpcMonitoredItems.Count(i => (i.State == OpcMonitoredItemState.Monitored));
                         Logger.Information($"Start monitoring items on endpoint '{EndpointUri.AbsoluteUri}'. Currently monitoring {monitoredItemsCount} items.");
                     }
+
+                    // init perf data
+                    Stopwatch stopWatch = new Stopwatch();
+                    stopWatch.Start();
                     foreach (var item in unmonitoredItems)
                     {
                         // if the session is not connected or a shutdown is in progress, we stop trying and wait for the next cycle
@@ -782,20 +786,23 @@ namespace OpcPublisher
                             };
                             monitoredItem.Notification += item.Notification;
                             opcSubscription.OpcUaClientSubscription.AddItem(monitoredItem);
-                            opcSubscription.OpcUaClientSubscription.SetPublishingMode(true);
-                            opcSubscription.OpcUaClientSubscription.ApplyChanges();
+                            if (additionalMonitoredItemsCount++ % 10000 == 0)
+                            {
+                                opcSubscription.OpcUaClientSubscription.SetPublishingMode(true);
+                                opcSubscription.OpcUaClientSubscription.ApplyChanges();
+                            }
                             item.OpcUaClientMonitoredItem = monitoredItem;
                             item.State = OpcMonitoredItemState.Monitored;
                             item.EndpointUri = EndpointUri;
-                            Logger.Information($"Created monitored item for node '{currentNodeId.ToString()}' in subscription with id '{opcSubscription.OpcUaClientSubscription.Id}' on endpoint '{EndpointUri.AbsoluteUri}'");
+                            Logger.Verbose($"Created monitored item for node '{currentNodeId.ToString()}' in subscription with id '{opcSubscription.OpcUaClientSubscription.Id}' on endpoint '{EndpointUri.AbsoluteUri}'");
                             if (item.RequestedSamplingInterval != monitoredItem.SamplingInterval)
                             {
                                 Logger.Information($"Sampling interval: requested: {item.RequestedSamplingInterval}; revised: {monitoredItem.SamplingInterval}");
                                 item.SamplingInterval = monitoredItem.SamplingInterval;
                             }
-                            if (additionalMonitoredItemsCount++ % 50 == 0)
+                            if (additionalMonitoredItemsCount % 10000 == 0)
                             {
-                                Logger.Information($"Now monitoring {monitoredItemsCount + additionalMonitoredItemsCount} items in subscription with id '{opcSubscription.OpcUaClientSubscription.Id}'");
+                                    Logger.Information($"Now monitoring {monitoredItemsCount + additionalMonitoredItemsCount} items in subscription with id '{opcSubscription.OpcUaClientSubscription.Id}'");
                             }
                         }
                         catch (Exception e) when (e.GetType() == typeof(ServiceResultException))
@@ -829,10 +836,13 @@ namespace OpcPublisher
                             Logger.Error(e, $"Failed to monitor node '{currentNodeId.Identifier}' on endpoint '{EndpointUri}'");
                         }
                     }
+                    opcSubscription.OpcUaClientSubscription.SetPublishingMode(true);
+                    opcSubscription.OpcUaClientSubscription.ApplyChanges();
+                    stopWatch.Stop();
                     if (haveUnmonitoredItems == true)
                     {
                         monitoredItemsCount = opcSubscription.OpcMonitoredItems.Count(i => (i.State == OpcMonitoredItemState.Monitored));
-                        Logger.Information($"Done processing unmonitored items on endpoint '{EndpointUri.AbsoluteUri}'. Now monitoring {monitoredItemsCount} items in subscription with id '{opcSubscription.OpcUaClientSubscription.Id}'.");
+                        Logger.Information($"Done processing unmonitored items on endpoint '{EndpointUri.AbsoluteUri}' took {stopWatch.ElapsedMilliseconds} msec. Now monitoring {monitoredItemsCount} items in subscription with id '{opcSubscription.OpcUaClientSubscription.Id}'.");
                     }
                 }
                 // request a config file update, if everything is successfully monitored
