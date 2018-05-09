@@ -12,8 +12,11 @@ namespace OpcPublisher
     using Opc.Ua;
     using System;
     using System.IO;
+    using System.Linq;
     using static OpcPublisher.OpcMonitoredItem;
+    using static OpcPublisher.PublisherNodeConfiguration;
     using static OpcPublisher.PublisherTelemetryConfiguration;
+    using static OpcStackConfiguration;
     using static Program;
 
     /// <summary>
@@ -31,6 +34,33 @@ namespace OpcPublisher
                 Key = null;
                 Value = null;
             }
+        }
+
+        public class GetPublishedNodesMethodData
+        {
+            public int Version;
+            public string EndpointUrl;
+            public string PublishInterval;
+            public string SamplingInterval;
+        }
+
+        public class PublishNodeMethodData
+        {
+            public int Version;
+            public string Id;
+            public string EndpointUri;
+            public string PublishInterval;
+            public string SamplingInterval;
+            public string UseSecurity;
+            public string UserName;
+            public string Password;
+        }
+
+        public class UnpublishNodeMethodData
+        {
+            public int Version;
+            public string NodeId;
+            public string EndpointUrl;
         }
 
         public static long MonitoredItemsQueueCount => _monitoredItemsDataQueue.Count;
@@ -267,33 +297,99 @@ namespace OpcPublisher
         /// </summary>
         static async Task<MethodResponse> HandlePublishNodeMethodAsync(MethodRequest methodRequest, object userContext)
         {
-            MethodResponse response = new MethodResponse(0);
+            NodeId nodeId = null;
+            ExpandedNodeId expandedNodeId = null;
+            Uri endpointUri = null;
+            bool isNodeIdFormat = true;
+            PublishNodeMethodData publishNodeMethodData = null;
             try
             {
                 Logger.Debug("PublishNode method called.");
 
-                // todo - process publish request
+                publishNodeMethodData = JsonConvert.DeserializeObject<PublishNodeMethodData>(methodRequest.DataAsJson);
 
-                // Indicate that the message treatment is completed
-                return response;
+                if (publishNodeMethodData.Id.Contains("nsu="))
+                {
+                    expandedNodeId = ExpandedNodeId.Parse(publishNodeMethodData.Id);
+                    isNodeIdFormat = false;
+                }
+                else
+                {
+                    nodeId = NodeId.Parse(publishNodeMethodData.Id);
+                    isNodeIdFormat = true;
+                }
+                endpointUri = new Uri(publishNodeMethodData.EndpointUri);
+
+            }
+            catch (UriFormatException)
+            {
+                Logger.Error($"PublishNodeMethod: The EndpointUri has an invalid format '{publishNodeMethodData.EndpointUri}'!");
+                return (new MethodResponse((int)MethodResposeStatusCode.UserCodeException));
+            }
+            catch (Exception e)
+            {
+                Logger.Error(e, $"PublishNodeMethod: The NodeId has an invalid format '{publishNodeMethodData.Id}'!");
+                return (new MethodResponse((int)MethodResposeStatusCode.UserCodeException));
+            }
+
+            // find/create a session to the endpoint URL and start monitoring the node.
+            try
+            {
+                // lock the publishing configuration till we are done
+                OpcSessionsListSemaphore.Wait();
+
+                if (ShutdownTokenSource.IsCancellationRequested)
+                {
+                    Logger.Warning($"PublishNodeMethod: Publisher shutdown detected. Aborting...");
+                    // todo: check return code
+                    return (new MethodResponse(0));
+                }
+
+                // find the session we need to monitor the node
+                OpcSession opcSession = null;
+                opcSession = OpcSessions.FirstOrDefault(s => s.EndpointUri.AbsoluteUri.Equals(endpointUri.AbsoluteUri, StringComparison.OrdinalIgnoreCase));
+
+                // add a new session.
+                if (opcSession == null)
+                {
+                    // create new session info.
+                    opcSession = new OpcSession(endpointUri, true, OpcSessionCreationTimeout);
+                    OpcSessions.Add(opcSession);
+                    Logger.Information($"PublishNodeMethod: No matching session found for endpoint '{endpointUri.OriginalString}'. Requested to create a new one.");
+                }
+
+                if (isNodeIdFormat)
+                {
+                    // add the node info to the subscription with the default publishing interval, execute syncronously
+                    Logger.Information($"PublishNodeMethod: Request to monitor item with NodeId '{nodeId.ToString()}' (PublishingInterval: {OpcPublishingInterval}, SamplingInterval: {OpcSamplingInterval})");
+                    await opcSession.AddNodeForMonitoringAsync(nodeId, null, OpcPublishingInterval, OpcSamplingInterval, ShutdownTokenSource.Token);
+                }
+                else
+                {
+                    // add the node info to the subscription with the default publishing interval, execute syncronously
+                    Logger.Information($"PublishNodeMethod: Request to monitor item with ExpandedNodeId '{expandedNodeId.ToString()}' (PublishingInterval: {OpcPublishingInterval}, SamplingInterval: {OpcSamplingInterval})");
+                    await opcSession.AddNodeForMonitoringAsync(null, expandedNodeId, OpcPublishingInterval, OpcSamplingInterval, ShutdownTokenSource.Token);
+                }
             }
             catch (AggregateException e)
             {
                 foreach (Exception ex in e.InnerExceptions)
                 {
-                    Logger.Error(ex, "Error in PublishNode method handler.");
+                    Logger.Error(ex, "Error in PublishNodeMethod method handler.");
                 }
                 // Indicate that the message treatment is not completed
-                DeviceClient hubClient = (DeviceClient)userContext;
-                return response;
+                return (new MethodResponse((int)MethodResposeStatusCode.UserCodeException));
             }
             catch (Exception e)
             {
-                Logger.Error(e, "Error in PublishNode method handler.");
-                // Indicate that the message treatment is not completed
-                DeviceClient hubClient = (DeviceClient)userContext;
-                return response;
+                Logger.Error(e, $"PublishNodeMethod: Exception while trying to configure publishing node '{(isNodeIdFormat ? nodeId.ToString() : expandedNodeId.ToString())}'");
+                return (new MethodResponse((int)MethodResposeStatusCode.UserCodeException));
             }
+            finally
+            {
+                OpcSessionsListSemaphore.Release();
+            }
+            return (new MethodResponse(0));
         }
 
 

@@ -349,6 +349,7 @@ namespace OpcPublisher
                     // apply patterns
                     messageData.ApplyPatterns(telemetryConfiguration);
 
+                    Logger.Debug($"   ApplicationUri: {messageData.ApplicationUri}");
                     Logger.Debug($"   EndpointUrl: {messageData.EndpointUrl}");
                     Logger.Debug($"   DisplayName: {messageData.DisplayName}");
                     Logger.Debug($"   Value: {messageData.Value}");
@@ -1147,7 +1148,7 @@ namespace OpcPublisher
         /// <summary>
         /// Tags a monitored node to stop monitoring and remove it.
         /// </summary>
-        public async Task<bool> RequestMonitorItemRemovalAsync(NodeId nodeId, ExpandedNodeId expandedNodeId, int opcPublishingInterval, int opcSamplingInterval, CancellationToken ct)
+        public async Task<bool> RequestMonitorItemRemovalAsync(NodeId nodeId, ExpandedNodeId expandedNodeId, CancellationToken ct)
         {
             bool result = false;
             bool sessionLocked = false;

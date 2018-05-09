@@ -585,14 +585,14 @@ namespace OpcPublisher
                     if (isNodeIdFormat)
                     {
                         // stop monitoring the node, execute syncronously
-                        Logger.Information($"UnpublishNode: Request to stop monitoring item with NodeId '{nodeId.ToString()}' (PublishingInterval: {OpcPublishingInterval}, SamplingInterval: {OpcSamplingInterval})");
-                        result = opcSession.RequestMonitorItemRemovalAsync(nodeId, null, OpcPublishingInterval, OpcSamplingInterval, ShutdownTokenSource.Token).Result;
+                        Logger.Information($"UnpublishNode: Request to stop monitoring item with NodeId '{nodeId.ToString()}')");
+                        result = opcSession.RequestMonitorItemRemovalAsync(nodeId, null, ShutdownTokenSource.Token).Result;
                     }
                     else
                     {
                         // stop monitoring the node, execute syncronously
-                        Logger.Information($"UnpublishNode: Request to stop monitoring item with ExpandedNodeId '{expandedNodeId.ToString()}' (PublishingInterval: {OpcPublishingInterval}, SamplingInterval: {OpcSamplingInterval})");
-                        result = opcSession.RequestMonitorItemRemovalAsync(null, expandedNodeId, OpcPublishingInterval, OpcSamplingInterval, ShutdownTokenSource.Token).Result;
+                        Logger.Information($"UnpublishNode: Request to stop monitoring item with ExpandedNodeId '{expandedNodeId.ToString()}')");
+                        result = opcSession.RequestMonitorItemRemovalAsync(null, expandedNodeId, ShutdownTokenSource.Token).Result;
                     }
                 }
             }
