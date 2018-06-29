@@ -7,15 +7,16 @@ using System.Linq;
 namespace OpcPublisher
 {
     using Opc.Ua;
+    using System.Diagnostics;
+    using System.Net;
     using System.Threading;
     using System.Threading.Tasks;
+    using static HubCommunication;
     using static OpcPublisher.OpcMonitoredItem;
     using static OpcPublisher.PublisherTelemetryConfiguration;
     using static OpcStackConfiguration;
     using static Program;
     using static PublisherNodeConfiguration;
-    using static HubCommunication;
-    using System.Diagnostics;
 
     /// <summary>
     /// Class to manage the OPC monitored items, which are the nodes we need to publish.
@@ -45,36 +46,36 @@ namespace OpcPublisher
         public uint QueueSize;
         public bool DiscardOldest;
         public MonitoredItemNotificationEventHandler Notification;
-        public Uri EndpointUri;
+        public Uri EndpointUrl;
         public MonitoredItem OpcUaClientMonitoredItem;
         public NodeId ConfigNodeId;
         public ExpandedNodeId ConfigExpandedNodeId;
-        public ExpandedNodeId ConfigExpandedNodeIdOriginal;
+        public string OriginalId;
         public OpcMonitoredItemConfigurationType ConfigType;
 
         /// <summary>
         /// Ctor using NodeId (ns syntax for namespace).
         /// </summary>
-        public OpcMonitoredItem(NodeId nodeId, Uri sessionEndpointUri)
+        public OpcMonitoredItem(NodeId nodeId, Uri sessionEndpointUrl)
         {
             ConfigNodeId = nodeId;
             ConfigExpandedNodeId = null;
-            ConfigExpandedNodeIdOriginal = null;
+            OriginalId = nodeId.ToString();
             ConfigType = OpcMonitoredItemConfigurationType.NodeId;
-            Init(sessionEndpointUri);
+            Init(sessionEndpointUrl);
             State = OpcMonitoredItemState.Unmonitored;
         }
 
         /// <summary>
         /// Ctor using ExpandedNodeId (nsu syntax for namespace).
         /// </summary>
-        public OpcMonitoredItem(ExpandedNodeId expandedNodeId, Uri sessionEndpointUri)
+        public OpcMonitoredItem(ExpandedNodeId expandedNodeId, Uri sessionEndpointUrl)
         {
             ConfigNodeId = null;
             ConfigExpandedNodeId = expandedNodeId;
-            ConfigExpandedNodeIdOriginal = expandedNodeId;
+            OriginalId = expandedNodeId.ToString();
             ConfigType = OpcMonitoredItemConfigurationType.ExpandedNodeId;
-            Init(sessionEndpointUri);
+            Init(sessionEndpointUrl);
             State = OpcMonitoredItemState.UnmonitoredNamespaceUpdateRequested;
         }
 
@@ -276,13 +277,13 @@ namespace OpcPublisher
                 else
                 {
                     // update the required message data to pass only the required data to HubCommunication
-                    EndpointTelemetryConfiguration telemetryConfiguration = GetEndpointTelemetryConfiguration(EndpointUri.AbsoluteUri);
+                    EndpointTelemetryConfiguration telemetryConfiguration = GetEndpointTelemetryConfiguration(EndpointUrl.AbsoluteUri);
 
                     // the endpoint URL is required to allow HubCommunication lookup the telemetry configuration
-                    messageData.EndpointUrl = EndpointUri.AbsoluteUri;
+                    messageData.EndpointUrl = EndpointUrl.AbsoluteUri;
                     if (telemetryConfiguration.NodeId.Publish == true)
                     {
-                        messageData.NodeId = ConfigType == OpcMonitoredItemConfigurationType.NodeId ? ConfigNodeId.ToString() : ConfigExpandedNodeIdOriginal.ToString();
+                        messageData.NodeId = OriginalId;
                     }
                     if (telemetryConfiguration.MonitoredItem.ApplicationUri.Publish == true)
                     {
@@ -376,7 +377,7 @@ namespace OpcPublisher
         /// <summary>
         /// Init instance variables.
         /// </summary>
-        private void Init(Uri sessionEndpointUri)
+        private void Init(Uri sessionEndpointUrl)
         {
             State = OpcMonitoredItemState.Unmonitored;
             DisplayName = string.Empty;
@@ -386,7 +387,7 @@ namespace OpcPublisher
             QueueSize = 0;
             DiscardOldest = true;
             Notification = new MonitoredItemNotificationEventHandler(MonitoredItem_Notification);
-            EndpointUri = sessionEndpointUri;
+            EndpointUrl = sessionEndpointUrl;
         }
     }
 
@@ -421,33 +422,29 @@ namespace OpcPublisher
             Connected,
         }
 
-        public Uri EndpointUri;
+        public static bool FetchOpcNodeDisplayName { get; set; } = false;
+
+        public static string PublisherDomain { get; set; }
+
+        public static Int32 NodeConfigVersion = 0;
+
+        public Uri EndpointUrl;
+
         public Session OpcUaClientSession;
+
         public SessionState State;
+
         public List<OpcSubscription> OpcSubscriptions;
+
         public uint UnsuccessfulConnectionCount;
+
         public uint MissedKeepAlives;
+
         public int PublishingInterval;
 
         public uint SessionTimeout { get; }
 
-        public static bool FetchOpcNodeDisplayName
-        {
-            get => _fetchOpcNodeDisplayName;
-            set => _fetchOpcNodeDisplayName = value;
-        }
-
-        public static string PublisherDomain
-        {
-            get => _publisherDomain;
-            set => _publisherDomain = value;
-        }
-
-        public bool UseSecurity
-        {
-            get => _useSecurity;
-            set => _useSecurity = value;
-        }
+        public bool UseSecurity { get; set; } = true;
 
         public int GetNumberOfOpcSubscriptions()
         {
@@ -500,21 +497,21 @@ namespace OpcPublisher
         /// <summary>
         /// Ctor for the session.
         /// </summary>
-        public OpcSession(Uri endpointUri, bool useSecurity, uint sessionTimeout)
+        public OpcSession(Uri endpointUrl, bool useSecurity, uint sessionTimeout)
         {
             State = SessionState.Disconnected;
-            EndpointUri = endpointUri;
+            EndpointUrl = endpointUrl;
             SessionTimeout = sessionTimeout * 1000;
             OpcSubscriptions = new List<OpcSubscription>();
             UnsuccessfulConnectionCount = 0;
             MissedKeepAlives = 0;
             PublishingInterval = OpcPublishingInterval;
-            _useSecurity = useSecurity;
+            UseSecurity = useSecurity;
             _sessionCancelationTokenSource = new CancellationTokenSource();
             _sessionCancelationToken = _sessionCancelationTokenSource.Token;
             _opcSessionSemaphore = new SemaphoreSlim(1);
             _namespaceTable = new NamespaceTable();
-            _telemetryConfiguration = GetEndpointTelemetryConfiguration(endpointUri.AbsoluteUri);
+            _telemetryConfiguration = GetEndpointTelemetryConfiguration(endpointUrl.AbsoluteUri);
         }
 
         /// <summary>
@@ -527,22 +524,23 @@ namespace OpcPublisher
         /// </summary>
         public async Task ConnectAndMonitorAsync(CancellationToken ct)
         {
-            bool updateConfigFileRequired = false;
+            uint lastNodeConfigVersion = 0;
             try
             {
                 await ConnectSessionAsync(ct);
 
-                updateConfigFileRequired = await MonitorNodesAsync(ct);
+                await MonitorNodesAsync(ct);
 
-                updateConfigFileRequired |= await StopMonitoringNodesAsync(ct);
+                await StopMonitoringNodesAsync(ct);
 
                 await RemoveUnusedSubscriptionsAsync(ct);
 
                 await RemoveUnusedSessionsAsync(ct);
 
                 // update the config file if required
-                if (updateConfigFileRequired)
+                if (NodeConfigVersion != lastNodeConfigVersion)
                 {
+                    lastNodeConfigVersion = (uint)NodeConfigVersion;
                     await UpdateNodeConfigurationFileAsync();
                 }
             }
@@ -570,7 +568,7 @@ namespace OpcPublisher
                     return;
                 }
 
-                Logger.Information($"Connect and monitor session and nodes on endpoint '{EndpointUri.AbsoluteUri}'.");
+                Logger.Information($"Connect and monitor session and nodes on endpoint '{EndpointUrl.AbsoluteUri}'.");
                 State = SessionState.Connecting;
                 try
                 {
@@ -579,10 +577,10 @@ namespace OpcPublisher
                     sessionLocked = false;
 
                     // start connecting
-                    selectedEndpoint = CoreClientUtils.SelectEndpoint(EndpointUri.AbsoluteUri, _useSecurity);
+                    selectedEndpoint = CoreClientUtils.SelectEndpoint(EndpointUrl.AbsoluteUri, UseSecurity);
                     configuredEndpoint = new ConfiguredEndpoint(null, selectedEndpoint, EndpointConfiguration.Create(PublisherOpcApplicationConfiguration));
                     uint timeout = SessionTimeout * ((UnsuccessfulConnectionCount >= OpcSessionCreationBackoffMax) ? OpcSessionCreationBackoffMax : UnsuccessfulConnectionCount + 1);
-                    Logger.Information($"Create {(_useSecurity ? "secured" : "unsecured")} session for endpoint URI '{EndpointUri.AbsoluteUri}' with timeout of {timeout} ms.");
+                    Logger.Information($"Create {(UseSecurity ? "secured" : "unsecured")} session for endpoint URI '{EndpointUrl.AbsoluteUri}' with timeout of {timeout} ms.");
                     OpcUaClientSession = await Session.Create(
                             PublisherOpcApplicationConfiguration,
                             configuredEndpoint,
@@ -595,7 +593,7 @@ namespace OpcPublisher
                 }
                 catch (Exception e)
                 {
-                    Logger.Error(e, $"Session creation to endpoint '{EndpointUri.AbsoluteUri}' failed {++UnsuccessfulConnectionCount} time(s). Please verify if server is up and Publisher configuration is correct.");
+                    Logger.Error(e, $"Session creation to endpoint '{EndpointUrl.AbsoluteUri}' failed {++UnsuccessfulConnectionCount} time(s). Please verify if server is up and Publisher configuration is correct.");
                     State = SessionState.Disconnected;
                     OpcUaClientSession = null;
                     return;
@@ -682,7 +680,7 @@ namespace OpcPublisher
                         int revisedPublishingInterval;
                         opcSubscription.OpcUaClientSubscription = CreateSubscription(opcSubscription.RequestedPublishingInterval, out revisedPublishingInterval);
                         opcSubscription.PublishingInterval = revisedPublishingInterval;
-                        Logger.Information($"Create subscription on endpoint '{EndpointUri.AbsoluteUri}' requested OPC publishing interval is {opcSubscription.RequestedPublishingInterval} ms. (revised: {revisedPublishingInterval} ms)");
+                        Logger.Information($"Create subscription on endpoint '{EndpointUrl.AbsoluteUri}' requested OPC publishing interval is {opcSubscription.RequestedPublishingInterval} ms. (revised: {revisedPublishingInterval} ms)");
                     }
 
                     // process all unmonitored items.
@@ -694,7 +692,7 @@ namespace OpcPublisher
                     {
                         haveUnmonitoredItems = true;
                         monitoredItemsCount = opcSubscription.OpcMonitoredItems.Count(i => (i.State == OpcMonitoredItemState.Monitored));
-                        Logger.Information($"Start monitoring items on endpoint '{EndpointUri.AbsoluteUri}'. Currently monitoring {monitoredItemsCount} items.");
+                        Logger.Information($"Start monitoring items on endpoint '{EndpointUrl.AbsoluteUri}'. Currently monitoring {monitoredItemsCount} items.");
                     }
 
                     // init perf data
@@ -763,7 +761,7 @@ namespace OpcPublisher
                             }
 
                             // if configured, get the DisplayName for the node, otherwise use the nodeId
-                            Node node;
+                            Opc.Ua.Node node;
                             if (FetchOpcNodeDisplayName == true)
                             {
                                 node = OpcUaClientSession.ReadNode(currentNodeId);
@@ -794,8 +792,8 @@ namespace OpcPublisher
                             }
                             item.OpcUaClientMonitoredItem = monitoredItem;
                             item.State = OpcMonitoredItemState.Monitored;
-                            item.EndpointUri = EndpointUri;
-                            Logger.Verbose($"Created monitored item for node '{currentNodeId.ToString()}' in subscription with id '{opcSubscription.OpcUaClientSubscription.Id}' on endpoint '{EndpointUri.AbsoluteUri}'");
+                            item.EndpointUrl = EndpointUrl;
+                            Logger.Verbose($"Created monitored item for node '{currentNodeId.ToString()}' in subscription with id '{opcSubscription.OpcUaClientSubscription.Id}' on endpoint '{EndpointUrl.AbsoluteUri}' (version: {NodeConfigVersion:X8})");
                             if (item.RequestedSamplingInterval != monitoredItem.SamplingInterval)
                             {
                                 Logger.Information($"Sampling interval: requested: {item.RequestedSamplingInterval}; revised: {monitoredItem.SamplingInterval}");
@@ -805,6 +803,8 @@ namespace OpcPublisher
                             {
                                     Logger.Information($"Now monitoring {monitoredItemsCount + additionalMonitoredItemsCount} items in subscription with id '{opcSubscription.OpcUaClientSubscription.Id}'");
                             }
+                            // request a config file update, if everything is successfully monitored
+                            requestConfigFileUpdate = true;
                         }
                         catch (Exception e) when (e.GetType() == typeof(ServiceResultException))
                         {
@@ -813,7 +813,7 @@ namespace OpcPublisher
                             {
                                 case StatusCodes.BadSessionIdInvalid:
                                     {
-                                        Logger.Information($"Session with Id {OpcUaClientSession.SessionId} is no longer available on endpoint '{EndpointUri}'. Cleaning up.");
+                                        Logger.Information($"Session with Id {OpcUaClientSession.SessionId} is no longer available on endpoint '{EndpointUrl}'. Cleaning up.");
                                         // clean up the session
                                         InternalDisconnect();
                                         break;
@@ -821,20 +821,20 @@ namespace OpcPublisher
                                 case StatusCodes.BadNodeIdInvalid:
                                 case StatusCodes.BadNodeIdUnknown:
                                     {
-                                        Logger.Error($"Failed to monitor node '{currentNodeId.Identifier}' on endpoint '{EndpointUri}'.");
+                                        Logger.Error($"Failed to monitor node '{currentNodeId.Identifier}' on endpoint '{EndpointUrl}'.");
                                         Logger.Error($"OPC UA ServiceResultException is '{sre.Result}'. Please check your publisher configuration for this node.");
                                         break;
                                     }
                                 default:
                                     {
-                                        Logger.Error($"Unhandled OPC UA ServiceResultException '{sre.Result}' when monitoring node '{currentNodeId.Identifier}' on endpoint '{EndpointUri}'. Continue.");
+                                        Logger.Error($"Unhandled OPC UA ServiceResultException '{sre.Result}' when monitoring node '{currentNodeId.Identifier}' on endpoint '{EndpointUrl}'. Continue.");
                                         break;
                                     }
                             }
                         }
                         catch (Exception e)
                         {
-                            Logger.Error(e, $"Failed to monitor node '{currentNodeId.Identifier}' on endpoint '{EndpointUri}'");
+                            Logger.Error(e, $"Failed to monitor node '{currentNodeId.Identifier}' on endpoint '{EndpointUrl}'");
                         }
                     }
                     opcSubscription.OpcUaClientSubscription.SetPublishingMode(true);
@@ -843,11 +843,9 @@ namespace OpcPublisher
                     if (haveUnmonitoredItems == true)
                     {
                         monitoredItemsCount = opcSubscription.OpcMonitoredItems.Count(i => (i.State == OpcMonitoredItemState.Monitored));
-                        Logger.Information($"Done processing unmonitored items on endpoint '{EndpointUri.AbsoluteUri}' took {stopWatch.ElapsedMilliseconds} msec. Now monitoring {monitoredItemsCount} items in subscription with id '{opcSubscription.OpcUaClientSubscription.Id}'.");
+                        Logger.Information($"Done processing unmonitored items on endpoint '{EndpointUrl.AbsoluteUri}' took {stopWatch.ElapsedMilliseconds} msec. Now monitoring {monitoredItemsCount} items in subscription with id '{opcSubscription.OpcUaClientSubscription.Id}'.");
                     }
                 }
-                // request a config file update, if everything is successfully monitored
-                requestConfigFileUpdate = true;
             }
             catch (Exception e)
             {
@@ -886,7 +884,7 @@ namespace OpcPublisher
                     var itemsToRemove = opcSubscription.OpcMonitoredItems.Where(i => i.State == OpcMonitoredItemState.RemovalRequested);
                     if (itemsToRemove.Any())
                     {
-                        Logger.Information($"Remove nodes in subscription with id {opcSubscription.OpcUaClientSubscription.Id} on endpoint '{EndpointUri.AbsoluteUri}'");
+                        Logger.Information($"Remove nodes in subscription with id {opcSubscription.OpcUaClientSubscription.Id} on endpoint '{EndpointUrl.AbsoluteUri}'");
                         try
                         {
                             opcSubscription.OpcUaClientSubscription.RemoveItems(itemsToRemove.Select(i => i.OpcUaClientMonitoredItem));
@@ -898,7 +896,8 @@ namespace OpcPublisher
                         }
                         // remove them in our data structure
                         opcSubscription.OpcMonitoredItems.RemoveAll(i => i.State == OpcMonitoredItemState.RemovalRequested);
-                        Logger.Information($"There are now {opcSubscription.OpcMonitoredItems.Count} items managed by publisher for this subscription.");
+                        Interlocked.Increment(ref NodeConfigVersion);
+                        Logger.Information($"There are now {opcSubscription.OpcMonitoredItems.Count} items managed by publisher for this subscription. (version: {NodeConfigVersion:X8})");
                         requestConfigFileUpdate = true;
                     }
                 }
@@ -933,7 +932,7 @@ namespace OpcPublisher
                 var subscriptionsToRemove = OpcSubscriptions.Where(i => i.OpcMonitoredItems.Count == 0);
                 if (subscriptionsToRemove.Any())
                 {
-                    Logger.Information($"Remove unused subscriptions on endpoint '{EndpointUri}'.");
+                    Logger.Information($"Remove unused subscriptions on endpoint '{EndpointUrl}'.");
                     OpcUaClientSession.RemoveSubscriptions(subscriptionsToRemove.Select(s => s.OpcUaClientSubscription));
                     Logger.Information($"There are now {OpcUaClientSession.SubscriptionCount} subscriptions in this session.");
                 }
@@ -969,7 +968,7 @@ namespace OpcPublisher
                 var sessionsToRemove = OpcSessions.Where(s => s.OpcSubscriptions.Count == 0);
                 foreach (var sessionToRemove in sessionsToRemove)
                 {
-                    Logger.Information($"Remove unused session on endpoint '{EndpointUri}'.");
+                    Logger.Information($"Remove unused session on endpoint '{EndpointUrl}'.");
                     await sessionToRemove.ShutdownAsync();
                 }
                 // remove then in our data structures
@@ -996,7 +995,7 @@ namespace OpcPublisher
                 }
                 catch (Exception e)
                 {
-                    Logger.Error(e, $"Error while disconnecting '{EndpointUri}'.");
+                    Logger.Error(e, $"Error while disconnecting '{EndpointUrl}'.");
                 }
                 ReleaseSession();
             }
@@ -1069,7 +1068,7 @@ namespace OpcPublisher
         /// Adds a node to be monitored. If there is no subscription with the requested publishing interval,
         /// one is created.
         /// </summary>
-        public async Task AddNodeForMonitoringAsync(NodeId nodeId, ExpandedNodeId expandedNodeId, int opcPublishingInterval, int opcSamplingInterval, CancellationToken ct)
+        public async Task<HttpStatusCode> AddNodeForMonitoringAsync(NodeId nodeId, ExpandedNodeId expandedNodeId, int opcPublishingInterval, int opcSamplingInterval, CancellationToken ct)
         {
             bool sessionLocked = false;
             try
@@ -1077,7 +1076,7 @@ namespace OpcPublisher
                 sessionLocked = await LockSessionAsync();
                 if (!sessionLocked || ct.IsCancellationRequested)
                 {
-                    return;
+                    return HttpStatusCode.Gone;
                 }
 
                 // check if there is already a subscription with the same publishing interval, which can be used to monitor the node
@@ -1114,27 +1113,30 @@ namespace OpcPublisher
                     // add a new item to monitor
                     if (expandedNodeId == null)
                     {
-                        opcMonitoredItem = new OpcMonitoredItem(nodeId, EndpointUri);
+                        opcMonitoredItem = new OpcMonitoredItem(nodeId, EndpointUrl);
                     }
                     else
                     {
-                        opcMonitoredItem = new OpcMonitoredItem(expandedNodeId, EndpointUri);
+                        opcMonitoredItem = new OpcMonitoredItem(expandedNodeId, EndpointUrl);
                     }
                     opcMonitoredItem.RequestedSamplingInterval = opcSamplingInterval;
                     opcSubscription.OpcMonitoredItems.Add(opcMonitoredItem);
-                    Logger.Information($"AddNodeForMonitoring: Added item with nodeId '{(expandedNodeId == null ? nodeId.ToString() : expandedNodeId.ToString())}' for monitoring.");
+                    Interlocked.Increment(ref NodeConfigVersion);
+                    Logger.Debug($"AddNodeForMonitoring: Added item with nodeId '{(expandedNodeId == null ? nodeId.ToString() : expandedNodeId.ToString())}' for monitoring.");
 
                     // trigger the actual OPC communication with the server to be done
                     Task t = Task.Run(async () => await ConnectAndMonitorAsync(ct));
+                    return HttpStatusCode.Accepted;
                 }
                 else
                 {
-                    Logger.Information($"AddNodeForMonitoring: Node with Id '{(expandedNodeId == null ? nodeId.ToString() : expandedNodeId.ToString())}' is already monitored.");
+                    Logger.Debug($"AddNodeForMonitoring: Node with Id '{(expandedNodeId == null ? nodeId.ToString() : expandedNodeId.ToString())}' is already monitored.");
                 }
             }
             catch (Exception e)
             {
                 Logger.Error(e, $"AddNodeForMonitoring: Exception while trying to add node '{(expandedNodeId == null ? nodeId.ToString() : expandedNodeId.ToString())}' for monitoring.");
+                return HttpStatusCode.InternalServerError;
             }
             finally
             {
@@ -1143,14 +1145,15 @@ namespace OpcPublisher
                     ReleaseSession();
                 }
             }
+            return HttpStatusCode.OK;
         }
 
         /// <summary>
         /// Tags a monitored node to stop monitoring and remove it.
         /// </summary>
-        public async Task<bool> RequestMonitorItemRemovalAsync(NodeId nodeId, ExpandedNodeId expandedNodeId, CancellationToken ct)
+        public async Task<HttpStatusCode> RequestMonitorItemRemovalAsync(NodeId nodeId, ExpandedNodeId expandedNodeId, CancellationToken ct)
         {
-            bool result = false;
+            HttpStatusCode result = HttpStatusCode.Gone;
             bool sessionLocked = false;
             try
             {
@@ -1158,7 +1161,7 @@ namespace OpcPublisher
 
                 if (!sessionLocked || ct.IsCancellationRequested)
                 {
-                    return false;
+                    return HttpStatusCode.Gone;
                 }
 
                 // create objects for publish check
@@ -1178,11 +1181,11 @@ namespace OpcPublisher
 
                 }
 
-                // check if node is published
+                // if node is not published return succuss
                 if (!IsNodePublishedInSessionInternal(nodeIdCheck, expandedNodeIdCheck))
                 {
                     Logger.Information($"RequestMonitorItemRemoval: Node '{(expandedNodeId == null ? nodeId.ToString() : expandedNodeId.ToString())}' is not monitored.");
-                    return true;
+                    return HttpStatusCode.OK;
                 }
 
                 // tag all monitored items with nodeId to stop monitoring.
@@ -1195,7 +1198,7 @@ namespace OpcPublisher
                         // tag it for removal.
                         opcMonitoredItem.State = OpcMonitoredItemState.RemovalRequested;
                         Logger.Information($"RequestMonitorItemRemoval: Node with id '{(expandedNodeId == null ? nodeId.ToString() : expandedNodeId.ToString())}' tagged to stop monitoring.");
-                        result = true;
+                        result = HttpStatusCode.Accepted;
                     }
                 }
 
@@ -1205,6 +1208,7 @@ namespace OpcPublisher
             catch (Exception e)
             {
                 Logger.Error(e, $"RequestMonitorItemRemoval: Exception while trying to tag node '{(expandedNodeId == null ? nodeId.ToString() : expandedNodeId.ToString())}' to stop monitoring.");
+                result = HttpStatusCode.InternalServerError;
             }
             finally
             {
@@ -1271,7 +1275,7 @@ namespace OpcPublisher
         /// <summary>
         /// Checks if the node specified by either the given NodeId or ExpandedNodeId on the given endpoint is published.
         /// </summary>
-        public static bool IsNodePublished(NodeId nodeId, ExpandedNodeId expandedNodeId, Uri endpointUri)
+        public static bool IsNodePublished(NodeId nodeId, ExpandedNodeId expandedNodeId, Uri endpointUrl)
         {
             try
             {
@@ -1280,7 +1284,7 @@ namespace OpcPublisher
                 // itereate through all sessions, subscriptions and monitored items and create config file entries
                 foreach (var opcSession in OpcSessions)
                 {
-                    if (opcSession.EndpointUri.AbsoluteUri.Equals(endpointUri.AbsoluteUri, StringComparison.OrdinalIgnoreCase))
+                    if (opcSession.EndpointUrl.AbsoluteUri.Equals(endpointUrl.AbsoluteUri, StringComparison.OrdinalIgnoreCase))
                     {
                         if (opcSession.IsNodePublishedInSession(nodeId, expandedNodeId))
                         {
@@ -1328,14 +1332,14 @@ namespace OpcPublisher
                             Subscription opcUaClientSubscription = opcSubscription.OpcUaClientSubscription;
                             opcUaClientSubscription.Delete(true);
                         }
-                        Logger.Information($"Closing session to endpoint URI '{EndpointUri.AbsoluteUri}' closed successfully.");
+                        Logger.Information($"Closing session to endpoint URI '{EndpointUrl.AbsoluteUri}' closed successfully.");
                         OpcUaClientSession.Close();
                         State = SessionState.Disconnected;
-                        Logger.Information($"Session to endpoint URI '{EndpointUri.AbsoluteUri}' closed successfully.");
+                        Logger.Information($"Session to endpoint URI '{EndpointUrl.AbsoluteUri}' closed successfully.");
                     }
                     catch (Exception e)
                     {
-                        Logger.Error(e, $"Error while closing session to endpoint '{EndpointUri.AbsoluteUri}'.");
+                        Logger.Error(e, $"Error while closing session to endpoint '{EndpointUrl.AbsoluteUri}'.");
                         State = SessionState.Disconnected;
                         return;
                     }
@@ -1365,7 +1369,7 @@ namespace OpcPublisher
             // need to happen before the create to set the Session property.
             OpcUaClientSession.AddSubscription(subscription);
             subscription.Create();
-            Logger.Information($"Created subscription with id {subscription.Id} on endpoint '{EndpointUri.AbsoluteUri}'");
+            Logger.Information($"Created subscription with id {subscription.Id} on endpoint '{EndpointUrl.AbsoluteUri}'");
             if (requestedPublishingInterval != subscription.PublishingInterval)
             {
                 Logger.Information($"Publishing interval: requested: {requestedPublishingInterval}; revised: {subscription.PublishingInterval}");
@@ -1450,9 +1454,6 @@ namespace OpcPublisher
             _opcSessionSemaphore.Release();
         }
 
-        private static string _publisherDomain;
-        private static bool _fetchOpcNodeDisplayName = false;
-        private bool _useSecurity = true;
         private SemaphoreSlim _opcSessionSemaphore;
         private CancellationTokenSource _sessionCancelationTokenSource;
         private CancellationToken _sessionCancelationToken;

@@ -1,6 +1,5 @@
 ﻿
 using Newtonsoft.Json;
-using Opc.Ua;
 using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
@@ -327,11 +326,7 @@ namespace OpcPublisher
             }
         }
 
-        public static string PublisherTelemetryConfigurationFilename
-        {
-            get => _publisherTelemetryConfigurationFilename;
-            set => _publisherTelemetryConfigurationFilename = value;
-        }
+        public static string PublisherTelemetryConfigurationFilename { get; set; } = null;
 
         /// <summary>
         /// Initialize resources for the telemetry configuration.
@@ -350,7 +345,7 @@ namespace OpcPublisher
         /// </summary>
         public static void Deinit()
         {
-            _publisherTelemetryConfigurationFilename = null;
+            PublisherTelemetryConfigurationFilename = null;
             _telemetryConfiguration = null;
             _endpointTelemetryConfigurations = null;
             _defaultEndpointTelemetryConfiguration = null;
@@ -513,7 +508,7 @@ namespace OpcPublisher
            InitializePublisherDefaultEndpointTelemetryConfiguration();
 
             // return if there is no configuration file specified
-            if (string.IsNullOrEmpty(_publisherTelemetryConfigurationFilename))
+            if (string.IsNullOrEmpty(PublisherTelemetryConfigurationFilename))
             {
                 Logger.Information("Using default telemetry configuration.");
                 return true;
@@ -522,8 +517,8 @@ namespace OpcPublisher
             // get information on the telemetry configuration
             try
             {
-                Logger.Information($"Attempting to load telemetry configuration file from: {_publisherTelemetryConfigurationFilename}");
-                _telemetryConfiguration = JsonConvert.DeserializeObject<TelemetryConfiguration>(await File.ReadAllTextAsync(_publisherTelemetryConfigurationFilename));
+                Logger.Information($"Attempting to load telemetry configuration file from: {PublisherTelemetryConfigurationFilename}");
+                _telemetryConfiguration = JsonConvert.DeserializeObject<TelemetryConfiguration>(await File.ReadAllTextAsync(PublisherTelemetryConfigurationFilename));
 
                 // update the default configuration with the 'Defaults' settings from the configuration file
                 if (UpdateDefaultEndpointTelemetryConfiguration() == false)
@@ -555,7 +550,6 @@ namespace OpcPublisher
             return true;
         }
 
-        private static string _publisherTelemetryConfigurationFilename = null;
         private static TelemetryConfiguration _telemetryConfiguration;
         private static List<EndpointTelemetryConfiguration> _endpointTelemetryConfigurations;
         private static EndpointTelemetryConfiguration _defaultEndpointTelemetryConfiguration;

@@ -1,4 +1,5 @@
-﻿using System.Text;
+﻿
+using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -83,14 +84,10 @@ namespace OpcPublisher
                 // connect to EdgeHub
                 HubProtocol = TransportType.Mqtt_Tcp_Only;
                 Logger.Information($"Create IoTEdgeHub client with connection string using '{HubProtocol}' for communication.");
-                DeviceClient hubClient = DeviceClient.CreateFromConnectionString(edgeHubConnectionString, transportSettings);
+                ModuleClient hubClient = ModuleClient.CreateFromConnectionString(edgeHubConnectionString, transportSettings);
 
                 if (await InitHubCommunicationAsync(hubClient, TransportType.Mqtt_Tcp_Only))
                 {
-                    // register input message handlers
-                    await hubClient.SetInputMessageHandlerAsync("OpcAnnouncements", HandleOpcAnnouncementsMessageAsync, hubClient);
-                    await hubClient.SetInputMessageHandlerAsync("publish", HandlePublishNodeMessageAsync, hubClient);
-                    await hubClient.SetInputMessageHandlerAsync("unpublish", HandleUnpublishNodeMessageAsync, hubClient);
                     return true;
                 }
                 return false;
@@ -99,114 +96,6 @@ namespace OpcPublisher
             {
                 Logger.Error(e, "Error in IoTEdgeHub initialization.)");
                 return false;
-            }
-        }
-
-        /// <summary>
-        /// Handle announcements input messages.
-        /// </summary>
-        static async Task<MessageResponse> HandleOpcAnnouncementsMessageAsync(Message message, object userContext)
-        {
-            try
-            {
-                DeviceClient hubClient = (DeviceClient)userContext;
-
-                byte[] messageBytes = message.GetBytes();
-                string messageString = Encoding.UTF8.GetString(messageBytes);
-
-                // todo - process publish request
-
-                // Indicate that the message treatment is completed
-                return MessageResponse.Completed;
-            }
-            catch (AggregateException e)
-            {
-                foreach (Exception ex in e.InnerExceptions)
-                {
-                    Logger.Error(ex, "Error in OpcAnnouncements message handler.");
-                }
-                // Indicate that the message treatment is not completed
-                DeviceClient hubClient = (DeviceClient)userContext;
-                return MessageResponse.Abandoned;
-            }
-            catch (Exception e)
-            {
-                Logger.Error(e, "Error in OpcAnnouncements message handler.");
-                // Indicate that the message treatment is not completed
-                DeviceClient hubClient = (DeviceClient)userContext;
-                return MessageResponse.Abandoned;
-            }
-        }
-
-        /// <summary>
-        /// Handle publish input messages.
-        /// </summary>
-        static async Task<MessageResponse> HandlePublishNodeMessageAsync(Message message, object userContext)
-        {
-            try
-            {
-                DeviceClient hubClient = (DeviceClient)userContext;
-
-                byte[] messageBytes = message.GetBytes();
-                string messageString = Encoding.UTF8.GetString(messageBytes);
-
-                // todo - process publish request
-
-                // Indicate that the message treatment is completed
-                return MessageResponse.Completed;
-            }
-            catch (AggregateException e)
-            {
-                foreach (Exception ex in e.InnerExceptions)
-                {
-                    Logger.Error(ex, "Error in PublishNode message handler.");
-                }
-                // Indicate that the message treatment is not completed
-                DeviceClient hubClient = (DeviceClient)userContext;
-                return MessageResponse.Abandoned;
-            }
-            catch (Exception e)
-            {
-                Logger.Error(e, "Error in PublishNode message handler.");
-                // Indicate that the message treatment is not completed
-                DeviceClient hubClient = (DeviceClient)userContext;
-                return MessageResponse.Abandoned;
-            }
-        }
-
-        /// <summary>
-        /// Handle unpublish input messages.
-        /// </summary>
-        static async Task<MessageResponse> HandleUnpublishNodeMessageAsync(Message message, object userContext)
-        {
-            try
-            {
-                DeviceClient hubClient = (DeviceClient)userContext;
-
-                byte[] messageBytes = message.GetBytes();
-                string messageString = Encoding.UTF8.GetString(messageBytes);
-
-                // todo - process publish request
-
-                // Indicate that the message treatment is completed
-                return MessageResponse.Completed;
-            }
-            catch (AggregateException e)
-            {
-                foreach (Exception ex in e.InnerExceptions)
-                {
-                    Logger.Error(ex, "Error in UnublishNode message handler.");
-                }
-                // Indicate that the message treatment is not completed
-                DeviceClient hubClient = (DeviceClient)userContext;
-                return MessageResponse.Abandoned;
-            }
-            catch (Exception e)
-            {
-                Logger.Error(e, "Error in UnublishNode message handler.");
-                // Indicate that the message treatment is not completed
-                DeviceClient hubClient = (DeviceClient)userContext;
-                return MessageResponse.Abandoned;
             }
         }
     }

@@ -6,7 +6,6 @@ using System.Threading.Tasks;
 namespace OpcPublisher
 {
     using static HubCommunication;
-    using static IotHubCommunication;
     using static Program;
     using static PublisherNodeConfiguration;
 
@@ -15,13 +14,9 @@ namespace OpcPublisher
     /// </summary>
     public static class Diagnostics
     {
-        public static uint DiagnosticsInterval
-        {
-            get => _diagnosticsInterval;
-            set => _diagnosticsInterval = value;
-        }
+        public static uint DiagnosticsInterval { get; set; } = 0;
 
-        public static int IotHubMessagingMessagesSentCount => _messagesSentCount;
+        public static int IotHubMessagingMessagesSentCount { get; } = 0;
 
         public static void Init()
         {
@@ -30,7 +25,7 @@ namespace OpcPublisher
             _shutdownTokenSource = new CancellationTokenSource();
 
             // kick off the task to show diagnostic info
-            if (_diagnosticsInterval > 0)
+            if (DiagnosticsInterval > 0)
             {
                 _showDiagnosticsInfoTask = Task.Run(async () => await ShowDiagnosticsInfoAsync(_shutdownTokenSource.Token));
             }
@@ -64,7 +59,7 @@ namespace OpcPublisher
 
                 try
                 {
-                    await Task.Delay((int)_diagnosticsInterval * 1000, ct);
+                    await Task.Delay((int)DiagnosticsInterval * 1000, ct);
 
                     Logger.Information("==========================================================================");
                     Logger.Information($"OpcPublisher status @ {System.DateTime.UtcNow} (started @ {PublisherStartTime})");
@@ -100,8 +95,6 @@ namespace OpcPublisher
             }
         }
 
-        private static uint _diagnosticsInterval = 0;
-        private static int _messagesSentCount = 0;
         private static CancellationTokenSource _shutdownTokenSource;
         private static Task _showDiagnosticsInfoTask;
     }

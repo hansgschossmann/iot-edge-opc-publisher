@@ -32,7 +32,7 @@ namespace OpcPublisher
         public static CancellationTokenSource ShutdownTokenSource;
         public static bool IsIotEdgeModule = false;
 
-        public static uint PublisherShutdownWaitPeriod => _publisherShutdownWaitPeriod;
+        public static uint PublisherShutdownWaitPeriod { get; } = 10;
 
         public static DateTime PublisherStartTime = DateTime.UtcNow;
 
@@ -192,6 +192,17 @@ namespace OpcPublisher
                                 else
                                 {
                                     throw new OptionException("The ldsreginterval must be larger or equal 0.", "ldsreginterval");
+                                }
+                            }
+                        },
+                        { "ol|opcmaxstringlen=", $"the max length of a string opc can transmit/receive.\nDefault: {OpcMaxStringLength}", (int i) => {
+                                if (i > 0)
+                                {
+                                    OpcMaxStringLength = i;
+                                }
+                                else
+                                {
+                                    throw new OptionException("The max opc string length must be larger than 0.", "opcmaxstringlen");
                                 }
                             }
                         },
@@ -537,7 +548,7 @@ namespace OpcPublisher
                     }
                 }
 
-                if (!await PublisherNodeConfiguration.CreateOpcPublishingDataAsync())
+                if (!await CreateOpcPublishingDataAsync())
                 {
                     return;
                 }
@@ -676,7 +687,7 @@ namespace OpcPublisher
             }
 
             // Wait and continue after a while.
-            uint maxTries = _publisherShutdownWaitPeriod;
+            uint maxTries = PublisherShutdownWaitPeriod;
             while (true)
             {
                 int sessionCount = OpcSessions.Count;
@@ -847,7 +858,6 @@ namespace OpcPublisher
             return;
         }
 
-        private static uint _publisherShutdownWaitPeriod = 10;
         private static PublisherServer _publisherServer;
         private static int _publisherSessionConnectWaitSec = 10;
         private static bool _noShutdown = false;
