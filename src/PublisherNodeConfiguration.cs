@@ -207,7 +207,7 @@ namespace OpcPublisher
                 }
                 else
                 {
-                    Logger.Information($"The node configuration file '{PublisherNodeConfigurationFilename}' does not exist. Starting up and wait for remote configuration requests.");
+                    Logger.Information($"The node configuration file '{PublisherNodeConfigurationFilename}' does not exist. Continue and wait for remote configuration requests.");
                 }
             }
             catch (Exception e)

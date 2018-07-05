@@ -238,7 +238,7 @@ namespace OpcPublisher
             try
             {
                 // lock the publishing configuration till we are done
-                OpcSessionsListSemaphore.Wait();
+                await OpcSessionsListSemaphore.WaitAsync();
 
                 if (ShutdownTokenSource.IsCancellationRequested)
                 {
@@ -356,7 +356,7 @@ namespace OpcPublisher
             // find the session and stop monitoring the node.
             try
             {
-                OpcSessionsListSemaphore.Wait();
+                await OpcSessionsListSemaphore.WaitAsync();
                 if (ShutdownTokenSource.IsCancellationRequested)
                 {
                     return (new MethodResponse((int)HttpStatusCode.Gone));
@@ -463,7 +463,7 @@ namespace OpcPublisher
             // schedule to remove all nodes on all sessions
             try
             {
-                OpcSessionsListSemaphore.Wait();
+                await OpcSessionsListSemaphore.WaitAsync();
                 if (ShutdownTokenSource.IsCancellationRequested)
                 {
                     return (new MethodResponse((int)HttpStatusCode.Gone));
@@ -485,10 +485,12 @@ namespace OpcPublisher
                     }
 
                     // loop through all subscriptions of a connected session
-                    foreach (var subscription in session.OpcSubscriptions)
+                    var subscriptionsToCleanup = session.OpcSubscriptions;
+                    foreach (var subscription in subscriptionsToCleanup)
                     {
                         // loop through all monitored items
-                        foreach (var monitoredItem in subscription.OpcMonitoredItems)
+                        var monitoredItemsToCleanup = subscription.OpcMonitoredItems;
+                        foreach (var monitoredItem in monitoredItemsToCleanup)
                         {
                             if (monitoredItem.ConfigType == OpcMonitoredItemConfigurationType.NodeId)
                             {
@@ -585,7 +587,7 @@ namespace OpcPublisher
             string resultString = JsonConvert.SerializeObject(getConfiguredEndpointsMethodResponse);
             byte[] result = Encoding.UTF8.GetBytes(resultString);
             MethodResponse methodResponse = new MethodResponse(result, (int)HttpStatusCode.OK);
-            Logger.Information($"HandleGetConfiguredEndpointsMethodAsync: Success returning {actualEndpointsCount} nodes (node config version: {nodeConfigVersion:X8})!");
+            Logger.Information($"HandleGetConfiguredEndpointsMethodAsync: Success returning {actualEndpointsCount} endpoint(s) (node config version: {nodeConfigVersion:X8})!");
             return methodResponse;
         }
 
@@ -670,13 +672,11 @@ namespace OpcPublisher
             {
                 getConfiguredNodesOnEndpointMethodResponse.ContinuationToken = (ulong)nodeConfigVersion << 32 | actualNodeCount + startIndex;
             }
-
-            // todo: unify model
             getConfiguredNodesOnEndpointMethodResponse.Nodes = opcNodes.GetRange((int)startIndex, (int)actualNodeCount).Select(n => new NodeModel(n.Id, n.OpcPublishingInterval, n.OpcSamplingInterval)).ToList();
             string resultString = JsonConvert.SerializeObject(getConfiguredNodesOnEndpointMethodResponse);
             byte[] result = Encoding.UTF8.GetBytes(resultString);
             MethodResponse methodResponse = new MethodResponse(result, (int)HttpStatusCode.OK);
-            Logger.Information($"HandleGetConfiguredNodesOnEndpointMethodAsync: Success returning {actualNodeCount} nodes of {availableNodeCount} (start: {startIndex}) (node config version: {nodeConfigVersion:X8})!");
+            Logger.Information($"HandleGetConfiguredNodesOnEndpointMethodAsync: Success returning {actualNodeCount} node(s) of {availableNodeCount} (start: {startIndex}) (node config version: {nodeConfigVersion:X8})!");
             return methodResponse;
         }
 

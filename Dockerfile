@@ -1,4 +1,4 @@
-FROM microsoft/dotnet:2.0-sdk-jessie
+FROM microsoft/dotnet:2.0-runtime-stretch AS base
 
 COPY /src /build/src
 

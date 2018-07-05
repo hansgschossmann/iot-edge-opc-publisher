@@ -18,6 +18,7 @@ namespace OpcPublisher
     using static Diagnostics;
     using static HubCommunication;
     using static IotHubCommunication;
+    using static IotEdgeHubCommunication;
     using static Opc.Ua.CertificateStoreType;
     using static OpcSession;
     using static OpcStackConfiguration;
@@ -30,7 +31,6 @@ namespace OpcPublisher
         public static IotHubCommunication IotHubCommunication;
         public static IotEdgeHubCommunication IotEdgeHubCommunication;
         public static CancellationTokenSource ShutdownTokenSource;
-        public static bool IsIotEdgeModule = false;
 
         public static uint PublisherShutdownWaitPeriod { get; } = 10;
 
@@ -68,10 +68,9 @@ namespace OpcPublisher
 
                 // detect the runtime environment. either we run standalone (native or containerized) or as IoT Edge module (containerized)
                 // check if we have an environment variable containing an IoT Edge connectionstring, we run as IoT Edge module
-                if (!string.IsNullOrEmpty(Environment.GetEnvironmentVariable("EdgeHubConnectionString")))
+                if (IsIotEdgeModule)
                 {
                     WriteLine("IoTEdge detected.");
-                    IsIotEdgeModule = true;
                 }
 
                 // command line options
@@ -79,16 +78,16 @@ namespace OpcPublisher
                         // Publishing configuration options
                         { "pf|publishfile=", $"the filename to configure the nodes to publish.\nDefault: '{PublisherNodeConfigurationFilename}'", (string p) => PublisherNodeConfigurationFilename = p },
                         { "tc|telemetryconfigfile=", $"the filename to configure the ingested telemetry\nDefault: '{PublisherTelemetryConfigurationFilename}'", (string p) => PublisherTelemetryConfigurationFilename = p },
-                        { "d|domain=", $"the domain OPC Publisher is working in. if specified this domain is appended (delimited by a ':' to the 'ApplicationURI' property when telemetry is sent to IoTHub.\n" +
+                        { "s|site=", $"the site OPC Publisher is working in. if specified this domain is appended (delimited by a ':' to the 'ApplicationURI' property when telemetry is sent to IoTHub.\n" +
                                 "The value must follow the syntactical rules of a DNS hostname.\nDefault: not set", (string s) => {
-                                Regex domainNameRegex = new Regex("^(([a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9\\-]*[a-zA-Z0-9])\\.)*([A-Za-z0-9]|[A-Za-z0-9][A-Za-z0-9\\-]*[A-Za-z0-9])$");
-                                if (domainNameRegex.IsMatch(s))
+                                Regex siteNameRegex = new Regex("^(([a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9\\-]*[a-zA-Z0-9])\\.)*([A-Za-z0-9]|[A-Za-z0-9][A-Za-z0-9\\-]*[A-Za-z0-9])$");
+                                if (siteNameRegex.IsMatch(s))
                                 {
-                                    PublisherDomain = s;
+                                    PublisherSite = s;
                                 }
                                 else
                                 {
-                                    throw new OptionException("The shopfloor domain is not a valid DNS hostname.", "shopfloordomain");
+                                    throw new OptionException("The shopfloor site is not a valid DNS hostname.", "site");
                                 }
                             }
                          },
@@ -397,7 +396,8 @@ namespace OpcPublisher
                     InitLogging();
 
                     // show message
-                    Logger.Fatal(e, "Error in command line options");
+                    Logger.Error(e, "Error in command line options");
+                    Logger.Error($"Command line arguments: {String.Join(" ", args)}");
 
                     // show usage
                     Usage(options);
@@ -406,6 +406,13 @@ namespace OpcPublisher
 
                 // initialize logging
                 InitLogging();
+
+                // show usage if requested
+                if (shouldShowHelp)
+                {
+                    Usage(options);
+                    return;
+                }
 
                 // Validate and parse extra arguments.
                 const int APP_NAME_INDEX = 0;
@@ -437,6 +444,8 @@ namespace OpcPublisher
                         }
                     default:
                         {
+                            Logger.Error("Error in command line options");
+                            Logger.Error($"Command line arguments: {String.Join(" ", args)}");
                             Usage(options);
                             return;
                         }
@@ -477,14 +486,14 @@ namespace OpcPublisher
                 OpcStackConfiguration opcStackConfiguration = new OpcStackConfiguration();
                 await opcStackConfiguration.ConfigureAsync();
 
-                // log shopfloor domain setting
-                if (string.IsNullOrEmpty(PublisherDomain))
+                // log shopfloor site setting
+                if (string.IsNullOrEmpty(PublisherSite))
                 {
-                    Logger.Information("There is no domain configured.");
+                    Logger.Information("There is no site configured.");
                 }
                 else
                 {
-                    Logger.Information($"Publisher is in domain '{PublisherDomain}'.");
+                    Logger.Information($"Publisher is in site '{PublisherSite}'.");
                 }
 
                 // Set certificate validator.
@@ -738,7 +747,7 @@ namespace OpcPublisher
             StringBuilder stringBuilder = new StringBuilder();
             StringWriter stringWriter = new StringWriter(stringBuilder);
             options.WriteOptionDescriptions(stringWriter);
-            string[] helpLines = stringBuilder.ToString().Split("\r\n");
+            string[] helpLines = stringBuilder.ToString().Split("\n");
             foreach (var line in helpLines)
             {
                 Logger.Information(line);
@@ -752,7 +761,7 @@ namespace OpcPublisher
         {
             if (e.Error.StatusCode == StatusCodes.BadCertificateUntrusted)
             {
-                Logger.Information($"The Publisher does not trust the server with the certificate subject '{e.Certificate.Subject}'.");
+                Logger.Information($"OPC Publisher does not trust the server with the certificate subject '{e.Certificate.Subject}'.");
                 Logger.Information("If you want to trust this certificate, please copy it from the directory:");
                 Logger.Information($"{PublisherOpcApplicationConfiguration.SecurityConfiguration.RejectedCertificateStore.StorePath}/certs");
                 Logger.Information("to the directory:");

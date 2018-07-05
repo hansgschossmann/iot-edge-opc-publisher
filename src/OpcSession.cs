@@ -287,7 +287,7 @@ namespace OpcPublisher
                     }
                     if (telemetryConfiguration.MonitoredItem.ApplicationUri.Publish == true)
                     {
-                        messageData.ApplicationUri = (monitoredItem.Subscription.Session.Endpoint.Server.ApplicationUri + (string.IsNullOrEmpty(OpcSession.PublisherDomain) ? "" : $":{OpcSession.PublisherDomain}"));
+                        messageData.ApplicationUri = (monitoredItem.Subscription.Session.Endpoint.Server.ApplicationUri + (string.IsNullOrEmpty(OpcSession.PublisherSite) ? "" : $":{OpcSession.PublisherSite}"));
                     }
                     if (telemetryConfiguration.MonitoredItem.DisplayName.Publish == true && monitoredItem.DisplayName != null)
                     {
@@ -424,7 +424,7 @@ namespace OpcPublisher
 
         public static bool FetchOpcNodeDisplayName { get; set; } = false;
 
-        public static string PublisherDomain { get; set; }
+        public static string PublisherSite { get; set; }
 
         public static Int32 NodeConfigVersion = 0;
 
