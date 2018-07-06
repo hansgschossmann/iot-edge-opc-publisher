@@ -662,12 +662,12 @@ OPC Publisher has an OPC UA Server integrated, which could be accessed on port 6
 This endpoint exposes three methods:
   - PublishNode
   - UnpublishNode
-  - GetConfiguredNodes
+  - GetPublishedNodes
 
 ### Configuration via IoTHub direct function calls
 OPC Publisher implements the following IoTHub direct method calls, which can be called when OPC Publisher runs standalone or in IoTEdge:
-  - PublishNode
-  - UnpublishNode
+  - PublishNodes
+  - UnpublishNodes
   - UnpublishAllNodes
   - GetConfiguredEndpoints
   - GetConfiguredNodesOnEndpoint

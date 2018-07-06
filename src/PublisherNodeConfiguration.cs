@@ -380,6 +380,91 @@ namespace OpcPublisher
         }
 
         /// <summary>
+        /// Returns a list of all configured nodes in NodeId format.
+        /// </summary>
+        /// <returns></returns>
+        public static async Task<List<PublisherConfigurationFileEntryLegacy>> GetPublisherConfigurationFileEntriesAsNodeIds(Uri endpointUrl)
+        {
+            List<PublisherConfigurationFileEntryLegacy> publisherConfigurationFileEntriesLegacy = new List<PublisherConfigurationFileEntryLegacy>();
+            try
+            {
+                PublisherNodeConfigurationSemaphore.Wait();
+
+                try
+                {
+                    OpcSessionsListSemaphore.Wait();
+
+                    // itereate through all sessions, subscriptions and monitored items and create config file entries
+                    foreach (var session in OpcSessions)
+                    {
+                        bool sessionLocked = false;
+                        try
+                        {
+                            sessionLocked = session.LockSessionAsync().Result;
+                            if (sessionLocked && (endpointUrl == null || session.EndpointUrl.AbsoluteUri.Equals(endpointUrl.AbsoluteUri, StringComparison.OrdinalIgnoreCase)))
+                            {
+                                PublisherConfigurationFileEntryLegacy publisherConfigurationFileEntryLegacy = new PublisherConfigurationFileEntryLegacy();
+
+                                publisherConfigurationFileEntryLegacy.EndpointUrl = session.EndpointUrl;
+                                publisherConfigurationFileEntryLegacy.NodeId = null;
+                                publisherConfigurationFileEntryLegacy.OpcNodes = null;
+                                foreach (var subscription in session.OpcSubscriptions)
+                                {
+                                    foreach (var monitoredItem in subscription.OpcMonitoredItems)
+                                    {
+                                        // ignore items tagged to stop
+                                        if (monitoredItem.State != OpcMonitoredItemState.RemovalRequested)
+                                        {
+                                            if (monitoredItem.ConfigType == OpcMonitoredItemConfigurationType.ExpandedNodeId)
+                                            {
+                                                // for certain scenarios we support returning the NodeId format even so the
+                                                // actual configuration of the node was in ExpandedNodeId format
+                                                publisherConfigurationFileEntryLegacy.EndpointUrl = session.EndpointUrl;
+                                                publisherConfigurationFileEntryLegacy.NodeId = new NodeId(monitoredItem.ConfigExpandedNodeId.Identifier, (ushort)session.GetNamespaceIndexUnlocked(monitoredItem.ConfigExpandedNodeId?.NamespaceUri));
+                                                publisherConfigurationFileEntriesLegacy.Add(publisherConfigurationFileEntryLegacy);
+                                            }
+                                            else
+                                            {
+                                                // we do not convert nodes with legacy configuration to the new format to keep backward
+                                                // compatibility with external configurations.
+                                                // the conversion would only be possible, if the session is connected, to have access to the
+                                                // server namespace array.
+                                                publisherConfigurationFileEntryLegacy.EndpointUrl = session.EndpointUrl;
+                                                publisherConfigurationFileEntryLegacy.NodeId = monitoredItem.ConfigNodeId;
+                                                publisherConfigurationFileEntriesLegacy.Add(publisherConfigurationFileEntryLegacy);
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        finally
+                        {
+                            if (sessionLocked)
+                            {
+                                session.ReleaseSession();
+                            }
+                        }
+                    }
+                }
+                finally
+                {
+                    OpcSessionsListSemaphore.Release();
+                }
+            }
+            catch (Exception e)
+            {
+                Logger.Error(e, "Creation of configuration file entries failed.");
+                publisherConfigurationFileEntriesLegacy = null;
+            }
+            finally
+            {
+                PublisherNodeConfigurationSemaphore.Release();
+            }
+            return publisherConfigurationFileEntriesLegacy;
+        }
+
+        /// <summary>
         /// Updates the configuration file to persist all currently published nodes
         /// </summary>
         public static async Task UpdateNodeConfigurationFileAsync()

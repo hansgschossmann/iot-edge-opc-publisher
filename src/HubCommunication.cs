@@ -135,8 +135,8 @@ namespace OpcPublisher
                     await _edgeHubClient.SetDesiredPropertyUpdateCallbackAsync(DesiredPropertiesUpdate, null);
 
                     // register method handlers
-                    await _edgeHubClient.SetMethodHandlerAsync("PublishNode", HandlePublishNodeMethodAsync, _edgeHubClient);
-                    await _edgeHubClient.SetMethodHandlerAsync("UnpublishNode", HandleUnpublishNodeMethodAsync, _edgeHubClient);
+                    await _edgeHubClient.SetMethodHandlerAsync("PublishNodes", HandlePublishNodesMethodAsync, _edgeHubClient);
+                    await _edgeHubClient.SetMethodHandlerAsync("UnpublishNodes", HandleUnpublishNodesMethodAsync, _edgeHubClient);
                     await _edgeHubClient.SetMethodHandlerAsync("UnpublishAllNodes", HandleUnpublishAllNodesMethodAsync, _edgeHubClient);
                     await _edgeHubClient.SetMethodHandlerAsync("GetConfiguredEndpoints", HandleGetConfiguredEndpointsMethodAsync, _edgeHubClient);
                     await _edgeHubClient.SetMethodHandlerAsync("GetConfiguredNodesOnEndpoint", HandleGetConfiguredNodesOnEndpointMethodAsync, _edgeHubClient);
@@ -161,8 +161,8 @@ namespace OpcPublisher
                         await _iotHubClient.SetDesiredPropertyUpdateCallbackAsync(DesiredPropertiesUpdate, null);
 
                         // register method handlers
-                        await _iotHubClient.SetMethodHandlerAsync("PublishNode", HandlePublishNodeMethodAsync, _iotHubClient);
-                        await _iotHubClient.SetMethodHandlerAsync("UnpublishNode", HandleUnpublishNodeMethodAsync, _iotHubClient);
+                        await _iotHubClient.SetMethodHandlerAsync("PublishNodes", HandlePublishNodesMethodAsync, _iotHubClient);
+                        await _iotHubClient.SetMethodHandlerAsync("UnpublishNodes", HandleUnpublishNodesMethodAsync, _iotHubClient);
                         await _iotHubClient.SetMethodHandlerAsync("UnpublishAllNodes", HandleUnpublishAllNodesMethodAsync, _iotHubClient);
                         await _iotHubClient.SetMethodHandlerAsync("GetConfiguredEndpoints", HandleGetConfiguredEndpointsMethodAsync, _iotHubClient);
                         await _iotHubClient.SetMethodHandlerAsync("GetConfiguredNodesOnEndpoint", HandleGetConfiguredNodesOnEndpointMethodAsync, _iotHubClient);
@@ -212,25 +212,25 @@ namespace OpcPublisher
         /// <summary>
         /// Handle publish node method call.
         /// </summary>
-        static async Task<MethodResponse> HandlePublishNodeMethodAsync(MethodRequest methodRequest, object userContext)
+        static async Task<MethodResponse> HandlePublishNodesMethodAsync(MethodRequest methodRequest, object userContext)
         {
             Uri endpointUrl = null;
-            PublishNodeMethodRequestModel publishNodeMethodData = null;
+            PublishNodesMethodRequestModel publishNodesMethodData = null;
             HttpStatusCode statusCode = HttpStatusCode.InternalServerError;
             try
             {
-                Logger.Debug("PublishNode method called.");
-                publishNodeMethodData = JsonConvert.DeserializeObject<PublishNodeMethodRequestModel>(methodRequest.DataAsJson);
-                endpointUrl = new Uri(publishNodeMethodData.EndpointUrl);
+                Logger.Debug("PublishNodes method called.");
+                publishNodesMethodData = JsonConvert.DeserializeObject<PublishNodesMethodRequestModel>(methodRequest.DataAsJson);
+                endpointUrl = new Uri(publishNodesMethodData.EndpointUrl);
             }
             catch (UriFormatException)
             {
-                Logger.Error($"PublishNodeMethod: The EndpointUrl has an invalid format '{publishNodeMethodData.EndpointUrl}'!");
+                Logger.Error($"PublishNodesMethod: The EndpointUrl has an invalid format '{publishNodesMethodData.EndpointUrl}'!");
                 return (new MethodResponse((int)HttpStatusCode.InternalServerError));
             }
             catch (Exception e)
             {
-                Logger.Error(e, $"PublishNodeMethod");
+                Logger.Error(e, $"PublishNodesMethod");
                 return (new MethodResponse((int)HttpStatusCode.InternalServerError));
             }
 
@@ -242,7 +242,7 @@ namespace OpcPublisher
 
                 if (ShutdownTokenSource.IsCancellationRequested)
                 {
-                    Logger.Warning($"PublishNodeMethod: Publisher shutdown detected. Aborting...");
+                    Logger.Warning($"PublishNodesMethod: Publisher shutdown detected. Aborting...");
                     return (new MethodResponse((int)HttpStatusCode.Gone));
                 }
 
@@ -256,11 +256,11 @@ namespace OpcPublisher
                     // create new session info.
                     opcSession = new OpcSession(endpointUrl, true, OpcSessionCreationTimeout);
                     OpcSessions.Add(opcSession);
-                    Logger.Information($"PublishNodeMethod: No matching session found for endpoint '{endpointUrl.OriginalString}'. Requested to create a new one.");
+                    Logger.Information($"PublishNodesMethod: No matching session found for endpoint '{endpointUrl.OriginalString}'. Requested to create a new one.");
                 }
 
                 // process all nodes
-                foreach (var node in publishNodeMethodData.Nodes)
+                foreach (var node in publishNodesMethodData.Nodes)
                 {
                     NodeId nodeId = null;
                     ExpandedNodeId expandedNodeId = null;
@@ -280,7 +280,7 @@ namespace OpcPublisher
                     }
                     catch (Exception e)
                     {
-                        Logger.Error(e, $"PublishNodeMethod: The NodeId has an invalid format '{node.Id}'!");
+                        Logger.Error(e, $"PublishNodesMethod: The NodeId has an invalid format '{node.Id}'!");
                         continue;
                     }
 
@@ -291,19 +291,19 @@ namespace OpcPublisher
                         if (isNodeIdFormat)
                         {
                             // add the node info to the subscription with the default publishing interval, execute syncronously
-                            Logger.Information($"PublishNodeMethod: Request to monitor item with NodeId '{nodeId.ToString()}' (PublishingInterval: {publishingInterval}, SamplingInterval: {samplingInterval})");
+                            Logger.Information($"PublishNodesMethod: Request to monitor item with NodeId '{nodeId.ToString()}' (PublishingInterval: {publishingInterval}, SamplingInterval: {samplingInterval})");
                             statusCode = await opcSession.AddNodeForMonitoringAsync(nodeId, null, publishingInterval, samplingInterval, ShutdownTokenSource.Token);
                         }
                         else
                         {
                             // add the node info to the subscription with the default publishing interval, execute syncronously
-                            Logger.Information($"PublishNodeMethod: Request to monitor item with ExpandedNodeId '{expandedNodeId.ToString()}' (PublishingInterval: {publishingInterval}, SamplingInterval: {samplingInterval})");
+                            Logger.Information($"PublishNodesMethod: Request to monitor item with ExpandedNodeId '{expandedNodeId.ToString()}' (PublishingInterval: {publishingInterval}, SamplingInterval: {samplingInterval})");
                             statusCode = await opcSession.AddNodeForMonitoringAsync(null, expandedNodeId, publishingInterval, samplingInterval, ShutdownTokenSource.Token);
                         }
                     }
                     catch (Exception e)
                     {
-                        Logger.Error(e, $"PublishNodeMethod: Exception while trying to configure publishing node '{(isNodeIdFormat ? nodeId.ToString() : expandedNodeId.ToString())}'");
+                        Logger.Error(e, $"PublishNodesMethod: Exception while trying to configure publishing node '{(isNodeIdFormat ? nodeId.ToString() : expandedNodeId.ToString())}'");
                         return (new MethodResponse((int)HttpStatusCode.InternalServerError));
                     }
                 }
@@ -312,7 +312,7 @@ namespace OpcPublisher
             {
                 foreach (Exception ex in e.InnerExceptions)
                 {
-                    Logger.Error(ex, "Error in PublishNodeMethod method handler.");
+                    Logger.Error(ex, "Error in PublishNodesMethod method handler.");
                 }
                 // Indicate that the message treatment is not completed
                 return (new MethodResponse((int)HttpStatusCode.InternalServerError));
@@ -328,28 +328,28 @@ namespace OpcPublisher
         /// <summary>
         /// Handle unpublish node method call.
         /// </summary>
-        static async Task<MethodResponse> HandleUnpublishNodeMethodAsync(MethodRequest methodRequest, object userContext)
+        static async Task<MethodResponse> HandleUnpublishNodesMethodAsync(MethodRequest methodRequest, object userContext)
         {
             NodeId nodeId = null;
             ExpandedNodeId expandedNodeId = null;
             Uri endpointUrl = null;
             bool isNodeIdFormat = true;
-            UnpublishNodeMethodRequestModel unpublishNodeMethodData = null;
+            UnpublishNodesMethodRequestModel unpublishNodesMethodData = null;
             HttpStatusCode statusCode = HttpStatusCode.OK;
             try
             {
-                Logger.Debug("UnpublishNode method called.");
-                unpublishNodeMethodData = JsonConvert.DeserializeObject<UnpublishNodeMethodRequestModel>(methodRequest.DataAsJson);
-                endpointUrl = new Uri(unpublishNodeMethodData.EndpointUrl);
+                Logger.Debug("UnpublishNodes method called.");
+                unpublishNodesMethodData = JsonConvert.DeserializeObject<UnpublishNodesMethodRequestModel>(methodRequest.DataAsJson);
+                endpointUrl = new Uri(unpublishNodesMethodData.EndpointUrl);
             }
             catch (UriFormatException)
             {
-                Logger.Error($"UnpublishNodeMethod: The EndpointUrl has an invalid format '{unpublishNodeMethodData.EndpointUrl}'!");
+                Logger.Error($"UnpublishNodesMethod: The EndpointUrl has an invalid format '{unpublishNodesMethodData.EndpointUrl}'!");
                 return (new MethodResponse((int)HttpStatusCode.InternalServerError));
             }
             catch (Exception e)
             {
-                Logger.Error(e, $"UnpublishNodeMethod");
+                Logger.Error(e, $"UnpublishNodesMethod");
                 return (new MethodResponse((int)HttpStatusCode.InternalServerError));
             }
 
@@ -376,12 +376,12 @@ namespace OpcPublisher
                 if (opcSession == null)
                 {
                     // do nothing if there is no session for this endpoint.
-                    Logger.Error($"UnpublishNode: Session for endpoint '{endpointUrl.OriginalString}' not found.");
+                    Logger.Error($"UnpublishNodes: Session for endpoint '{endpointUrl.OriginalString}' not found.");
                     return (new MethodResponse((int)HttpStatusCode.Gone));
                 }
                 else
                 {
-                    foreach (var node in unpublishNodeMethodData.Nodes)
+                    foreach (var node in unpublishNodesMethodData.Nodes)
                     {
                         try
                         {
@@ -399,20 +399,20 @@ namespace OpcPublisher
                         }
                         catch (Exception e)
                         {
-                            Logger.Error(e, $"UnpublishNodeMethod: The NodeId has an invalid format '{node.Id}'!");
+                            Logger.Error(e, $"UnpublishNodesMethod: The NodeId has an invalid format '{node.Id}'!");
                             return (new MethodResponse((int)HttpStatusCode.InternalServerError));
                         }
 
                         if (isNodeIdFormat)
                         {
                             // stop monitoring the node, execute syncronously
-                            Logger.Information($"UnpublishNode: Request to stop monitoring item with NodeId '{nodeId.ToString()}')");
+                            Logger.Information($"UnpublishNodes: Request to stop monitoring item with NodeId '{nodeId.ToString()}')");
                             statusCode = await opcSession.RequestMonitorItemRemovalAsync(nodeId, null, ShutdownTokenSource.Token);
                         }
                         else
                         {
                             // stop monitoring the node, execute syncronously
-                            Logger.Information($"UnpublishNode: Request to stop monitoring item with ExpandedNodeId '{expandedNodeId.ToString()}')");
+                            Logger.Information($"UnpublishNodes: Request to stop monitoring item with ExpandedNodeId '{expandedNodeId.ToString()}')");
                             statusCode = await opcSession.RequestMonitorItemRemovalAsync(null, expandedNodeId, ShutdownTokenSource.Token);
                         }
                     }
@@ -420,7 +420,7 @@ namespace OpcPublisher
             }
             catch (Exception e)
             {
-                Logger.Error(e, $"UnpublishNode: Exception while trying to configure publishing node '{nodeId.ToString()}'");
+                Logger.Error(e, $"UnpublishNodes: Exception while trying to configure publishing node '{nodeId.ToString()}'");
                 return (new MethodResponse((int)HttpStatusCode.InternalServerError));
             }
             finally

@@ -319,7 +319,7 @@ namespace OpcPublisher
 
             // format the trace message
             string message = string.Empty;
-            message = string.Format(e.Format, e.Arguments).Trim();
+            message = string.Format(e.Format, e.Arguments)?.Trim();
             message = "OPC: " + message;
 
             // map logging level

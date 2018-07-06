@@ -31,9 +31,9 @@ namespace OpcPublisher
         public int? OpcSamplingInterval;
     }
 
-    public class PublishNodeMethodRequestModel
+    public class PublishNodesMethodRequestModel
     {
-        public PublishNodeMethodRequestModel(string endpointUrl, bool useSecurity = true, string userName = null, string password = null)
+        public PublishNodesMethodRequestModel(string endpointUrl, bool useSecurity = true, string userName = null, string password = null)
         {
             Nodes = new List<NodeModel>();
             EndpointUrl = endpointUrl;
@@ -55,9 +55,9 @@ namespace OpcPublisher
         public string Password;
     }
 
-    public class UnpublishNodeMethodRequestModel
+    public class UnpublishNodesMethodRequestModel
     {
-        public UnpublishNodeMethodRequestModel(string endpointUrl)
+        public UnpublishNodesMethodRequestModel(string endpointUrl)
         {
             Nodes = new List<NodeModel>();
             EndpointUrl = endpointUrl;
