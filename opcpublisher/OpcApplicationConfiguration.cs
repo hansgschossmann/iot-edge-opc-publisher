@@ -1,17 +1,10 @@
-﻿
-using Opc.Ua;
+﻿using Opc.Ua;
 using System;
-using System.Security.Cryptography.X509Certificates;
 
 namespace OpcPublisher
 {
-    using System.Collections.Generic;
-    using System.IO;
-    using System.Linq;
-    using System.Net;
-    using System.Text;
+    using System.Globalization;
     using System.Threading.Tasks;
-    using static Opc.Ua.CertificateStoreType;
     using static Program;
 
     /// <summary>
@@ -26,12 +19,14 @@ namespace OpcPublisher
         public static string Hostname
         {
             get => _hostname;
+#pragma warning disable CA1308 // Normalize strings to uppercase
             set => _hostname = value.ToLowerInvariant();
+#pragma warning restore CA1308 // Normalize strings to uppercase
         }
 
         public static string ApplicationName { get; set; } = "publisher";
         public static string ApplicationUri => $"urn:{Hostname}:{ApplicationName}:microsoft:";
-       public static string ProductUri => $"https://github.com/azure-samples/iot-edge-opc-publisher";
+        public static string ProductUri => $"https://github.com/azure-samples/iot-edge-opc-publisher";
         public static ushort ServerPort { get; set; } = 62222;
         public static string ServerPath { get; set; } = "/UA/Publisher";
 
@@ -53,19 +48,18 @@ namespace OpcPublisher
         /// <summary>
         /// Set the max string length the OPC stack supports.
         /// </summary>
-        //public static int OpcMaxStringLength { get; set; } = 4 * 1024 * 1024;
-        public static int OpcMaxStringLength { get; set; } = 128 * 1024;
+        public static int OpcMaxStringLength { get; set; } = HubCommunicationBase.MaxResponsePayloadLength;
 
         /// <summary>
         /// <summary>
         /// Mapping of the application logging levels to OPC stack logging levels.
         /// </summary>
-        public static int OpcTraceToLoggerVerbose = 0;
-        public static int OpcTraceToLoggerDebug = 0;
-        public static int OpcTraceToLoggerInformation = 0;
-        public static int OpcTraceToLoggerWarning = 0;
-        public static int OpcTraceToLoggerError = 0;
-        public static int OpcTraceToLoggerFatal = 0;
+        public static int OpcTraceToLoggerVerbose { get; set; } = 0;
+        public static int OpcTraceToLoggerDebug { get; set; } = 0;
+        public static int OpcTraceToLoggerInformation { get; set; } = 0;
+        public static int OpcTraceToLoggerWarning { get; set; } = 0;
+        public static int OpcTraceToLoggerError { get; set; } = 0;
+        public static int OpcTraceToLoggerFatal { get; set; } = 0;
 
         /// <summary>
         /// Set the OPC stack log level.
@@ -176,14 +170,14 @@ namespace OpcPublisher
             ApplicationConfiguration.ClientConfiguration = new ClientConfiguration();
 
             // security configuration
-            await InitApplicationSecurityAsync();
+            await InitApplicationSecurityAsync().ConfigureAwait(false);
 
             // set LDS registration interval
             ApplicationConfiguration.ServerConfiguration.MaxRegistrationInterval = LdsRegistrationInterval;
             Logger.Information($"LDS(-ME) registration intervall set to {LdsRegistrationInterval} ms (0 means no registration)");
 
             // show certificate store information
-            await ShowCertificateStoreInformationAsync();
+            await ShowCertificateStoreInformationAsync().ConfigureAwait(false);
 
             return ApplicationConfiguration;
         }
@@ -203,7 +197,7 @@ namespace OpcPublisher
 
             // format the trace message
             string message = string.Empty;
-            message = string.Format(e.Format, e.Arguments).Trim();
+            message = string.Format(CultureInfo.InvariantCulture, e.Format, e.Arguments).Trim();
             message = "OPC: " + message;
 
             // map logging level
@@ -240,6 +234,8 @@ namespace OpcPublisher
             return;
         }
 
+#pragma warning disable CA1308 // Normalize strings to uppercase
         private static string _hostname = $"{Utils.GetHostName().ToLowerInvariant()}";
+#pragma warning restore CA1308 // Normalize strings to uppercase
     }
 }

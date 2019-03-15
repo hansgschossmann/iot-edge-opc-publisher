@@ -1,5 +1,4 @@
-﻿
-using Opc.Ua;
+﻿using Opc.Ua;
 using Org.BouncyCastle.Asn1.X509;
 using Org.BouncyCastle.Crypto;
 using Org.BouncyCastle.Crypto.Generators;
@@ -20,12 +19,12 @@ using System.Threading.Tasks;
 
 namespace OpcPublisher
 {
-    public class SecureIoTHubToken
+    public sealed class SecureIoTHubToken
     {
         /// <summary>
         /// Returns the token from the cert in the given cert store.
         /// </summary>
-        public async static Task<string> ReadAsync(string name, string storeType, string storePath)
+        public static async Task<string> ReadAsync(string name, string storeType, string storePath)
         {
             string token = null;
 
@@ -38,7 +37,7 @@ namespace OpcPublisher
                         using (DirectoryCertificateStore store = new DirectoryCertificateStore())
                         {
                             store.Open(storePath);
-                            X509CertificateCollection certificates = await store.Enumerate();
+                            X509CertificateCollection certificates = await store.Enumerate().ConfigureAwait(false);
 
                             foreach (X509Certificate2 cert in certificates)
                             {
@@ -79,7 +78,7 @@ namespace OpcPublisher
         /// <summary>
         /// Creates a cert with the connectionstring (token) and stores it in the given cert store.
         /// </summary>
-        public async static Task WriteAsync(string name, string connectionString, string storeType, string storePath)
+        public static async Task WriteAsync(string name, string connectionString, string storeType, string storePath)
         {
             if (string.IsNullOrEmpty(connectionString))
             {
@@ -163,19 +162,19 @@ namespace OpcPublisher
                             using (DirectoryCertificateStore store = new DirectoryCertificateStore())
                             {
                                 store.Open(storePath);
-                                X509CertificateCollection certificates = await store.Enumerate();
+                                X509CertificateCollection certificates = await store.Enumerate().ConfigureAwait(false);
 
                                 // remove any existing cert with our name from the store
                                 foreach (X509Certificate2 cert in certificates)
                                 {
                                     if (cert.SubjectName.Decode(X500DistinguishedNameFlags.None | X500DistinguishedNameFlags.DoNotUseQuotes).Equals("CN=" + name, StringComparison.OrdinalIgnoreCase))
                                     {
-                                        await store.Delete(cert.Thumbprint);
+                                        await store.Delete(cert.Thumbprint).ConfigureAwait(false);
                                     }
                                 }
 
                                 // add new one
-                                await store.Add(certificate);
+                                await store.Add(certificate).ConfigureAwait(false);
                             }
                             break;
                         }

@@ -1,7 +1,4 @@
-﻿using System.Threading;
-using System.Threading.Tasks;
-
-namespace OpcPublisher
+﻿namespace OpcPublisher
 {
     using Microsoft.Azure.Devices.Client;
     using System;
@@ -10,7 +7,7 @@ namespace OpcPublisher
     /// <summary>
     /// Class to handle all IoTEdge communication.
     /// </summary>
-    public class IotEdgeHubCommunication : HubCommunication
+    public class IotEdgeHubCommunication : HubCommunicationBase
     {
         /// <summary>
         /// Detects if publisher is running as an IoTEdge module.
@@ -21,39 +18,46 @@ namespace OpcPublisher
                     !string.IsNullOrEmpty(Environment.GetEnvironmentVariable("IOTEDGE_MODULEGENERATIONID")) &&
                     !string.IsNullOrEmpty(Environment.GetEnvironmentVariable("IOTEDGE_WORKLOADURI")) &&
                     !string.IsNullOrEmpty(Environment.GetEnvironmentVariable("IOTEDGE_DEVICEID")) &&
-                    !string.IsNullOrEmpty(Environment.GetEnvironmentVariable("IOTEDGE_MODULEID")));
+                    !string.IsNullOrEmpty(Environment.GetEnvironmentVariable("IOTEDGE_MODULEID"))) ||
+                !string.IsNullOrEmpty(Environment.GetEnvironmentVariable("EdgeHubConnectionString"));
+        }
+
+        /// <summary>
+        /// Get the singleton.
+        /// </summary>
+        public static IotEdgeHubCommunication Instance
+        {
+            get
+            {
+                lock (_singletonLock)
+                {
+                    if (_instance == null)
+                    {
+                        _instance = new IotEdgeHubCommunication();
+                    }
+                    return _instance;
+                }
+            }
         }
 
         /// <summary>
         /// Ctor for the class.
         /// </summary>
-        public IotEdgeHubCommunication(CancellationToken ct) : base(ct)
+        public IotEdgeHubCommunication()
         {
-        }
+            // connect to IoT Edge hub
+            Logger.Information($"Create module client using '{HubProtocol}' for communication.");
+            IHubClient hubClient = HubClient.CreateModuleClientFromEnvironment(HubProtocol);
 
-        /// <summary>
-        /// Initializes the EdgeHub communication.
-        /// </summary>
-        public async Task<bool> InitAsync()
-        {
-            try
+            if (!InitHubCommunicationAsync(hubClient).Result)
             {
-                // connect to EdgeHub
-                HubProtocol = TransportType.Mqtt_Tcp_Only;
-                Logger.Information($"Create IoTEdgeHub module client using '{HubProtocol}' for communication.");
-                ModuleClient hubClient = await ModuleClient.CreateFromEnvironmentAsync(HubProtocol);
-
-                if (await InitHubCommunicationAsync(hubClient, HubProtocol))
-                {
-                    return true;
-                }
-                return false;
-            }
-            catch (Exception e)
-            {
-                Logger.Error(e, "Error in IoTEdgeHub initialization.)");
-                return false;
+                string errorMessage = $"Cannot create module client. Exiting...";
+                Logger.Fatal(errorMessage);
+                throw new Exception(errorMessage);
             }
         }
+
+        private static readonly object _singletonLock = new object();
+        private static IotEdgeHubCommunication _instance = null;
     }
 }
