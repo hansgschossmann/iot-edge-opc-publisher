@@ -17,12 +17,5 @@ branches:
         mode: ContinuousDelivery
         tag: ''
         increment: None
-        prevent-increment-of-merged-branch-version: true
-        track-merge-target: false
-        regex: ^dev(elop)?(ment)?$
-        tracks-release-branches: false
-        is-release-branch: false
-        is-mainline: true
-        pre-release-weight: 55000
 ignore:
   sha: []
