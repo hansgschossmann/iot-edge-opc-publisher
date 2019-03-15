@@ -1,4 +1,3 @@
-
 using Opc.Ua;
 using Opc.Ua.Server;
 using System;
@@ -6,12 +5,13 @@ using System.Collections.Generic;
 
 namespace OpcPublisher
 {
+    using Microsoft.Azure.Devices.Client;
     using Newtonsoft.Json;
     using System.Linq;
     using System.Net;
+    using System.Text;
     using static OpcApplicationConfiguration;
     using static OpcPublisher.Program;
-    using static PublisherNodeConfiguration;
 
     public class PublisherNodeManager : CustomNodeManager2
     {
@@ -26,13 +26,11 @@ namespace OpcPublisher
         /// </summary>
         public override NodeId New(ISystemContext context, NodeState node)
         {
-            BaseInstanceState instance = node as BaseInstanceState;
 
-            if (instance != null && instance.Parent != null)
+            if (node is BaseInstanceState instance && instance.Parent != null)
             {
-                string id = instance.Parent.NodeId.Identifier as string;
 
-                if (id != null)
+                if (instance.Parent.NodeId.Identifier is string id)
                 {
                     return new NodeId(id + "_" + instance.SymbolicName, instance.Parent.NodeId.NamespaceIndex);
                 }
@@ -58,11 +56,7 @@ namespace OpcPublisher
                 UserWriteMask = AttributeWriteMask.None,
                 EventNotifier = EventNotifiers.None
             };
-
-            if (parent != null)
-            {
-                parent.AddChild(folder);
-            }
+            parent?.AddChild(folder);
 
             return folder;
         }
@@ -80,9 +74,8 @@ namespace OpcPublisher
         {
             lock (Lock)
             {
-                IList<IReference> references = null;
 
-                if (!externalReferences.TryGetValue(ObjectIds.ObjectsFolder, out references))
+                if (!externalReferences.TryGetValue(ObjectIds.ObjectsFolder, out IList<IReference> references))
                 {
                     externalReferences[ObjectIds.ObjectsFolder] = references = new List<IReference>();
                 }
@@ -113,6 +106,9 @@ namespace OpcPublisher
 
                     MethodState getPublishedNodesLegacyMethod = CreateMethod(methodsFolder, "GetPublishedNodes", "GetPublishedNodes");
                     SetGetPublishedNodesLegacyMethodProperties(ref getPublishedNodesLegacyMethod);
+
+                    MethodState iotHubDirectMethodMethod = CreateMethod(methodsFolder, "IoTHubDirectMethod", "IoTHubDirectMethod");
+                    SetGetIoTHubDirectMethodMethodProperties(ref iotHubDirectMethodMethod);
                 }
                 catch (Exception e)
                 {
@@ -142,15 +138,15 @@ namespace OpcPublisher
 
             method.InputArguments.Value = new Argument[]
             {
-                            new Argument() { Name = "NodeId", Description = "NodeId of the node to publish in NodeId format.",  DataType = DataTypeIds.String, ValueRank = ValueRanks.Scalar },
-                            new Argument() { Name = "EndpointUrl", Description = "Endpoint URI of the OPC UA server owning the node.",  DataType = DataTypeIds.String, ValueRank = ValueRanks.Scalar }
+                new Argument() { Name = "NodeId", Description = "NodeId of the node to publish in NodeId format.",  DataType = DataTypeIds.String, ValueRank = ValueRanks.Scalar },
+                new Argument() { Name = "EndpointUrl", Description = "Endpoint URI of the OPC UA server owning the node.",  DataType = DataTypeIds.String, ValueRank = ValueRanks.Scalar }
             };
 
             method.OnCallMethod = new GenericMethodCalledEventHandler(OnPublishNodeCall);
         }
 
         /// <summary>
-        /// Sets properies of the UnpublishNode method.
+        /// Sets properties of the UnpublishNode method.
         /// </summary>
         private void SetUnpublishNodeMethodProperties(ref MethodState method)
         {
@@ -168,15 +164,15 @@ namespace OpcPublisher
 
             method.InputArguments.Value = new Argument[]
             {
-                            new Argument() { Name = "NodeId", Description = "NodeId of the node to publish in NodeId format.",  DataType = DataTypeIds.String, ValueRank = ValueRanks.Scalar },
-                            new Argument() { Name = "EndpointUrl", Description = "Endpoint URI of the OPC UA server owning the node.",  DataType = DataTypeIds.String, ValueRank = ValueRanks.Scalar },
+                new Argument() { Name = "NodeId", Description = "NodeId of the node to publish in NodeId format.",  DataType = DataTypeIds.String, ValueRank = ValueRanks.Scalar },
+                new Argument() { Name = "EndpointUrl", Description = "Endpoint URI of the OPC UA server owning the node.",  DataType = DataTypeIds.String, ValueRank = ValueRanks.Scalar },
             };
 
             method.OnCallMethod = new GenericMethodCalledEventHandler(OnUnpublishNodeCall);
         }
 
         /// <summary>
-        /// Sets properies of the GetPublishedNodes method, which is only there for backward compatibility.
+        /// Sets properties of the GetPublishedNodes method, which is only there for backward compatibility.
         /// This method is acutally returning the configured nodes in NodeId syntax.
         /// </summary>
         private void SetGetPublishedNodesLegacyMethodProperties(ref MethodState method)
@@ -195,7 +191,7 @@ namespace OpcPublisher
 
             method.InputArguments.Value = new Argument[]
             {
-                            new Argument() { Name = "EndpointUrl", Description = "Endpoint URI of the OPC UA server to return the published nodes for.",  DataType = DataTypeIds.String, ValueRank = ValueRanks.Scalar }
+                new Argument() { Name = "EndpointUrl", Description = "Endpoint URI of the OPC UA server to return the published nodes for.",  DataType = DataTypeIds.String, ValueRank = ValueRanks.Scalar }
             };
 
             // set output arguments
@@ -215,6 +211,48 @@ namespace OpcPublisher
                         new Argument() { Name = "Published nodes", Description = "List of the nodes configured to publish in OPC Publisher in NodeId format",  DataType = DataTypeIds.String, ValueRank = ValueRanks.Scalar }
             };
             method.OnCallMethod = new GenericMethodCalledEventHandler(OnGetPublishedNodesLegacyCall);
+        }
+
+        /// <summary>
+        /// Sets properties of the IoTHubDirectMethod method
+        /// </summary>
+        private void SetGetIoTHubDirectMethodMethodProperties(ref MethodState method)
+        {
+            // define input arguments
+            method.InputArguments = new PropertyState<Argument[]>(method)
+            {
+                NodeId = new NodeId(method.BrowseName.Name + "InArgs", NamespaceIndex),
+                BrowseName = BrowseNames.InputArguments
+            };
+            method.InputArguments.DisplayName = method.InputArguments.BrowseName.Name;
+            method.InputArguments.TypeDefinitionId = VariableTypeIds.PropertyType;
+            method.InputArguments.ReferenceTypeId = ReferenceTypeIds.HasProperty;
+            method.InputArguments.DataType = DataTypeIds.Argument;
+            method.InputArguments.ValueRank = ValueRanks.OneDimension;
+
+            method.InputArguments.Value = new Argument[]
+            {
+                new Argument() { Name = "MethodName", Description = "Name of the IoTHub direct method.",  DataType = DataTypeIds.String, ValueRank = ValueRanks.Scalar },
+                new Argument() { Name = "RequestJson", Description = "Request model as json string.",  DataType = DataTypeIds.String, ValueRank = ValueRanks.Scalar }
+            };
+
+            // set output arguments
+            method.OutputArguments = new PropertyState<Argument[]>(method)
+            {
+                NodeId = new NodeId(method.BrowseName.Name + "OutArgs", NamespaceIndex),
+                BrowseName = BrowseNames.OutputArguments
+            };
+            method.OutputArguments.DisplayName = method.OutputArguments.BrowseName.Name;
+            method.OutputArguments.TypeDefinitionId = VariableTypeIds.PropertyType;
+            method.OutputArguments.ReferenceTypeId = ReferenceTypeIds.HasProperty;
+            method.OutputArguments.DataType = DataTypeIds.Argument;
+            method.OutputArguments.ValueRank = ValueRanks.OneDimension;
+
+            method.OutputArguments.Value = new Argument[]
+            {
+                new Argument() { Name = "ResponseJson", Description = "Response model as json string.",  DataType = DataTypeIds.String, ValueRank = ValueRanks.Scalar }
+            };
+            method.OnCallMethod = new GenericMethodCalledEventHandler(OnIoTHubDirectMethodCall);
         }
 
         /// <summary>
@@ -265,10 +303,7 @@ namespace OpcPublisher
             variable.Definition.AccessLevel = AccessLevels.CurrentReadOrWrite;
             variable.Definition.UserAccessLevel = AccessLevels.CurrentReadOrWrite;
 
-            if (parent != null)
-            {
-                parent.AddChild(variable);
-            }
+            parent?.AddChild(variable);
 
             return variable;
         }
@@ -321,10 +356,7 @@ namespace OpcPublisher
             variable.Definition.AccessLevel = AccessLevels.CurrentReadOrWrite;
             variable.Definition.UserAccessLevel = AccessLevels.CurrentReadOrWrite;
 
-            if (parent != null)
-            {
-                parent.AddChild(variable);
-            }
+            parent?.AddChild(variable);
 
             return variable;
         }
@@ -362,10 +394,7 @@ namespace OpcPublisher
                 variable.ArrayDimensions = new ReadOnlyList<uint>(new List<uint> { 0, 0 });
             }
 
-            if (parent != null)
-            {
-                parent.AddChild(variable);
-            }
+            parent?.AddChild(variable);
 
             return variable;
         }
@@ -388,10 +417,7 @@ namespace OpcPublisher
                 UserExecutable = true
             };
 
-            if (parent != null)
-            {
-                parent.AddChild(method);
-            }
+            parent?.AddChild(method);
 
             return method;
         }
@@ -414,10 +440,7 @@ namespace OpcPublisher
                 UserExecutable = true
             };
 
-            if (parent != null)
-            {
-                parent.AddChild(method);
-            }
+            parent?.AddChild(method);
 
             return method;
         }
@@ -437,12 +460,12 @@ namespace OpcPublisher
             HttpStatusCode statusCode = HttpStatusCode.InternalServerError;
             NodeId nodeId = null;
             ExpandedNodeId expandedNodeId = null;
-            Uri endpointUrl = null;
+            Uri endpointUri = null;
             bool isNodeIdFormat = true;
             try
             {
                 string id = inputArguments[0] as string;
-                if (id.Contains("nsu="))
+                if (id.Contains("nsu=", StringComparison.InvariantCulture))
                 {
                     expandedNodeId = ExpandedNodeId.Parse(id);
                     isNodeIdFormat = false;
@@ -452,7 +475,7 @@ namespace OpcPublisher
                     nodeId = NodeId.Parse(id);
                     isNodeIdFormat = true;
                 }
-                endpointUrl = new Uri(inputArguments[1] as string);
+                endpointUri = new Uri(inputArguments[1] as string);
             }
             catch (UriFormatException)
             {
@@ -469,7 +492,7 @@ namespace OpcPublisher
             try
             {
                 // lock the publishing configuration till we are done
-                OpcSessionsListSemaphore.Wait();
+                NodeConfiguration.OpcSessionsListSemaphore.Wait();
 
                 if (ShutdownTokenSource.IsCancellationRequested)
                 {
@@ -477,29 +500,29 @@ namespace OpcPublisher
                 }
 
                 // find the session we need to monitor the node
-                OpcSession opcSession = null;
-                opcSession = OpcSessions.FirstOrDefault(s => s.EndpointUrl.AbsoluteUri.Equals(endpointUrl.AbsoluteUri, StringComparison.OrdinalIgnoreCase));
+                IOpcSession opcSession = null;
+                opcSession = NodeConfiguration.OpcSessions.FirstOrDefault(s => s.EndpointUrl.Equals(endpointUri.OriginalString, StringComparison.OrdinalIgnoreCase));
 
                 // add a new session.
                 if (opcSession == null)
                 {
                     // create new session info.
-                    opcSession = new OpcSession(endpointUrl, true, OpcSessionCreationTimeout);
-                    OpcSessions.Add(opcSession);
-                    Logger.Information($"OnPublishNodeCall: No matching session found for endpoint '{endpointUrl.OriginalString}'. Requested to create a new one.");
+                    opcSession = new OpcSession(endpointUri.OriginalString, true, OpcSessionCreationTimeout);
+                    NodeConfiguration.OpcSessions.Add(opcSession);
+                    Logger.Information($"OnPublishNodeCall: No matching session found for endpoint '{endpointUri.OriginalString}'. Requested to create a new one.");
                 }
 
                 if (isNodeIdFormat)
                 {
                     // add the node info to the subscription with the default publishing interval, execute syncronously
                     Logger.Debug($"{logPrefix} Request to monitor item with NodeId '{nodeId.ToString()}' (with default PublishingInterval and SamplingInterval)");
-                    statusCode = opcSession.AddNodeForMonitoringAsync(nodeId, null, null, null, null, ShutdownTokenSource.Token).Result;
+                    statusCode = opcSession.AddNodeForMonitoringAsync(nodeId, null, null, null, null, null, null, ShutdownTokenSource.Token).Result;
                 }
                 else
                 {
                     // add the node info to the subscription with the default publishing interval, execute syncronously
                     Logger.Debug($"{logPrefix} Request to monitor item with ExpandedNodeId '{expandedNodeId.ToString()}' (with default PublishingInterval and SamplingInterval)");
-                    statusCode = opcSession.AddNodeForMonitoringAsync(null, expandedNodeId, null, null, null, ShutdownTokenSource.Token).Result;
+                    statusCode = opcSession.AddNodeForMonitoringAsync(null, expandedNodeId, null, null, null, null, null, ShutdownTokenSource.Token).Result;
                 }
             }
             catch (Exception e)
@@ -509,12 +532,9 @@ namespace OpcPublisher
             }
             finally
             {
-                OpcSessionsListSemaphore.Release();
+                NodeConfiguration.OpcSessionsListSemaphore.Release();
             }
-            if (statusCode == HttpStatusCode.NotAcceptable)
-            {
-                return ServiceResult.Create(StatusCodes.BadSessionNotActivated, "Can not start monitoring node, because session is in connecting state. Please retry later!");
-            }
+
             if (statusCode == HttpStatusCode.OK || statusCode == HttpStatusCode.Accepted)
             {
                 return ServiceResult.Good;
@@ -537,12 +557,12 @@ namespace OpcPublisher
             HttpStatusCode statusCode = HttpStatusCode.InternalServerError;
             NodeId nodeId = null;
             ExpandedNodeId expandedNodeId = null;
-            Uri endpointUrl = null;
+            Uri endpointUri = null;
             bool isNodeIdFormat = true;
             try
             {
                 string id = inputArguments[0] as string;
-                if (id.Contains("nsu="))
+                if (id.Contains("nsu=", StringComparison.InvariantCulture))
                 {
                     expandedNodeId = ExpandedNodeId.Parse(id);
                     isNodeIdFormat = false;
@@ -552,7 +572,7 @@ namespace OpcPublisher
                     nodeId = NodeId.Parse(id);
                     isNodeIdFormat = true;
                 }
-                endpointUrl = new Uri(inputArguments[1] as string);
+                endpointUri = new Uri(inputArguments[1] as string);
             }
             catch (UriFormatException)
             {
@@ -568,17 +588,17 @@ namespace OpcPublisher
             // find the session and stop monitoring the node.
             try
             {
-                OpcSessionsListSemaphore.Wait();
+                NodeConfiguration.OpcSessionsListSemaphore.Wait();
                 if (ShutdownTokenSource.IsCancellationRequested)
                 {
                     return ServiceResult.Create(StatusCodes.BadUnexpectedError, $"Publisher shutdown in progress.");
                 }
 
                 // find the session we need to monitor the node
-                OpcSession opcSession = null;
+                IOpcSession opcSession = null;
                 try
                 {
-                    opcSession = OpcSessions.FirstOrDefault(s => s.EndpointUrl.AbsoluteUri.Equals(endpointUrl.AbsoluteUri, StringComparison.OrdinalIgnoreCase));
+                    opcSession = NodeConfiguration.OpcSessions.FirstOrDefault(s => s.EndpointUrl.Equals(endpointUri.OriginalString, StringComparison.OrdinalIgnoreCase));
                 }
                 catch
                 {
@@ -588,7 +608,7 @@ namespace OpcPublisher
                 if (opcSession == null)
                 {
                     // do nothing if there is no session for this endpoint.
-                    Logger.Error($"{logPrefix} Session for endpoint '{endpointUrl.OriginalString}' not found.");
+                    Logger.Error($"{logPrefix} Session for endpoint '{endpointUri.OriginalString}' not found.");
                     return ServiceResult.Create(StatusCodes.BadSessionIdInvalid, "Session for endpoint of node to unpublished not found!");
                 }
                 else
@@ -614,7 +634,7 @@ namespace OpcPublisher
             }
             finally
             {
-                OpcSessionsListSemaphore.Release();
+                NodeConfiguration.OpcSessionsListSemaphore.Release();
             }
             return (statusCode == HttpStatusCode.OK || statusCode == HttpStatusCode.Accepted ? ServiceResult.Good : ServiceResult.Create(StatusCodes.Bad, "Can not stop monitoring node!"));
         }
@@ -628,7 +648,7 @@ namespace OpcPublisher
         private ServiceResult OnGetPublishedNodesLegacyCall(ISystemContext context, MethodState method, IList<object> inputArguments, IList<object> outputArguments)
         {
             string logPrefix = "OnGetPublishedNodesLegacyCall:";
-            Uri endpointUrl = null;
+            Uri endpointUri = null;
 
             if (string.IsNullOrEmpty(inputArguments[0] as string))
             {
@@ -638,7 +658,7 @@ namespace OpcPublisher
             {
                 try
                 {
-                    endpointUrl = new Uri(inputArguments[0] as string);
+                    endpointUri = new Uri(inputArguments[0] as string);
                 }
                 catch (UriFormatException)
                 {
@@ -648,9 +668,53 @@ namespace OpcPublisher
             }
 
             // get the list of published nodes in NodeId format
-            List<PublisherConfigurationFileEntryLegacyModel> configFileEntries = GetPublisherConfigurationFileEntriesAsNodeIdsAsync(endpointUrl).Result;
+            List<PublisherConfigurationFileEntryLegacyModel> configFileEntries = NodeConfiguration.GetPublisherConfigurationFileEntriesAsNodeIdsAsync(endpointUri.OriginalString).Result;
             outputArguments[0] = JsonConvert.SerializeObject(configFileEntries);
             Logger.Information($"{logPrefix} Success (number of entries: {configFileEntries.Count})");
+            return ServiceResult.Good;
+        }
+
+        /// <summary>
+        /// Handle method call to call direct IoTHub methods
+        /// </summary>
+        private ServiceResult OnIoTHubDirectMethodCall(ISystemContext context, MethodState method, IList<object> inputArguments, IList<object> outputArguments)
+        {
+            string logPrefix = "OnIoTHubDirectMethodCall:";
+            try
+            {
+                if (string.IsNullOrEmpty(inputArguments[0] as string))
+                {
+                    string errorMessage = "There is no direct method name specified.";
+                    Logger.Error($"{logPrefix} {errorMessage}");
+                    return ServiceResult.Create(StatusCodes.BadArgumentsMissing, errorMessage);
+                }
+
+                string methodRequest = string.Empty;
+                if ((inputArguments[1] as string) != null)
+                {
+                    methodRequest = inputArguments[1] as string;
+                }
+
+                string methodName = inputArguments[0] as string;
+                if (Hub.IotHubDirectMethods.ContainsKey(inputArguments[0] as string))
+                {
+                    var methodCallback = Hub.IotHubDirectMethods.GetValueOrDefault(methodName);
+                    var methodResponse = methodCallback(new MethodRequest(methodName, Encoding.UTF8.GetBytes(methodRequest)), null).Result;
+                    outputArguments[0] = methodResponse.ResultAsJson;
+                }
+                else
+                {
+                    var methodCallback = Hub.IotHubDirectMethods.GetValueOrDefault(methodName);
+                    var methodResponse = Hub.DefaultMethodHandlerAsync(new MethodRequest(methodName, Encoding.UTF8.GetBytes(methodRequest)), null).Result;
+                    outputArguments[0] = methodResponse.ResultAsJson;
+                    return ServiceResult.Create(StatusCodes.BadNotImplemented, "The IoTHub direct method is not implemented");
+                }
+            }
+            catch (Exception ex)
+            {
+                Logger.Error($"{logPrefix} The request is invalid!");
+                return ServiceResult.Create(ex, null, StatusCodes.Bad);
+            }
             return ServiceResult.Good;
         }
     }
